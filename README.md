@@ -101,7 +101,7 @@ If you did not change the default port, visit http://localhost:4000/ in your bro
 
 ## What is included in Toolkit?
 Components in this repo include:
-* `src/frontend` - A web app built in Next.js. Includes a simple SQL database out of the box to store conversation history in the app. 
+* `src/interfaces/coral_web` - A web app built in Next.js. Includes a simple SQL database out of the box to store conversation history in the app. 
 * `src/backend` - Contains preconfigured data sources and retrieval code to set up RAG on custom data sources (called "Retrieval Chains"). Users can also configure which model to use, selecting from Cohere's models hosted on either Cohere's platform, Azure, and AWS Sagemaker. By default, we have configured a Langchain data retriever to test RAG on Wikipedia and your own uploaded documents. 
 
 ![](/docs/assets/toolkit_graphic.png)
@@ -232,7 +232,7 @@ curl --location 'http://localhost:8000/chat-stream' \
 
 ### How to add your own chat interface 
 
-Currently the core chat interface is the Coral frontend. To add your own interface, take the steps above for call the backend as an API in your implementation and add it alongside `src/frontend`.
+Currently the core chat interface is the Coral frontend. To add your own interface, take the steps above for call the backend as an API in your implementation and add it alongside `src/interfaces/coral_web`.
 
 ### How to add a connector to the Toolkit
 
@@ -256,8 +256,12 @@ Toolkit includes some sample tools that you can copy to configure your own data 
 To create your own tools or add custom data sources, see our guide: [tools and retrieval sources overview](/docs/custom_tool_guides/tool_guide.md)
 
 ## Roadmap
-* Authentication and user management: Toolkit is currently configured with one user role and no authentication.
-* Whitelabelling: Changing fonts, logos, and colours.
+1. Set env variables in UI
+2. Include citations for multi hop tools 
+3. Display images for python interpreter tool
+4. Add a slack bot as an available interface 
+5. White labelling: Changing fonts, logos, and colours.
+6. User management and authentication system: Toolkit is currently configured with one user role and no authentication.
 
 ## Contributing
 Contributions are what drive an open source community, any contributions made are greatly appreciated. To get started, check out our [documentation.](CONTRIBUTING.md)
