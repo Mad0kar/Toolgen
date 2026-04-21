@@ -25,11 +25,6 @@ class DeploymentName(StrEnum):
     AZURE = "Azure"
 
 
-class ToolName(StrEnum):
-    PythonInterpreter = "Python Interpreter"
-    TavilyInternetSearch = "Tavily Internet Search"
-
-
 WELCOME_MESSAGE = r"""
  █████╗  █████╗ ██╗  ██╗███████╗██████╗ ███████╗ ████████╗ █████╗  █████╗ ██╗     ██╗  ██╗██╗████████╗
 ██╔══██╗██╔══██╗██║  ██║██╔════╝██╔══██╗██╔════╝ ╚══██╔══╝██╔══██╗██╔══██╗██║     ██║ ██╔╝██║╚══██╔══╝
@@ -39,7 +34,7 @@ WELCOME_MESSAGE = r"""
  ╚════╝  ╚════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝   
 """
 DATABASE_URL_DEFAULT = "postgresql+psycopg2://postgres:postgres@db:5432"
-PYTHON_INTERPRETER_URL_DEFAULT = "http://localhost:8080"
+PYTHON_INTERPRETER_URL_DEFAULT = "http://terrarium:8080"
 NEXT_PUBLIC_API_HOSTNAME_DEFAULT = "http://localhost:8000"
 
 DOT_ENV_FILE_PATH = ".env"
@@ -82,6 +77,26 @@ def database_url_prompt(secrets):
     secrets["NEXT_PUBLIC_API_HOSTNAME"] = next_public_api_hostname
 
 
+def python_interpreter_url_prompt(secrets):
+    print_styled("🐍 We need to set up your Python interpreter URL.")
+    python_interpreter_url = inquirer.text(
+        "Enter your Python interpreter URL or press enter for default [recommended]",
+        default=PYTHON_INTERPRETER_URL_DEFAULT,
+    )
+
+    secrets["PYTHON_INTERPRETER_URL"] = python_interpreter_url
+
+
+def tavily_api_key_prompt(secrets):
+    print_styled(
+        "🛜 If you want to enable internet search using Tavily, set up your api key. Otherwise, press enter."
+    )
+    tavily_api_key = inquirer.text("Enter your Tavily API key")
+
+    if tavily_api_key and len(tavily_api_key) > 0:
+        secrets["TAVILY_API_KEY"] = tavily_api_key
+
+
 def deployment_prompt(secrets, configs):
     for secret in configs["secrets"]:
         if configs.get("custom_implementation"):
@@ -91,15 +106,6 @@ def deployment_prompt(secrets, configs):
                 f"Enter the value for {secret}", validate=lambda _, x: len(x) > 0
             )
             secrets[secret] = value
-
-
-def tool_prompt(secrets, name, configs):
-    print_styled(
-        f"🛠️ If you want to enable {name}, set up the following secrets. Otherwise, press enter."
-    )
-    for secret in configs["secrets"]:
-        value = inquirer.text(f"Enter the value for {secret}")
-        secrets[secret] = value
 
 
 def review_variables_prompt(secrets):
@@ -205,20 +211,8 @@ def show_examples():
 
 IMPLEMENTATIONS = {
     "database_url": database_url_prompt,
-}
-
-
-TOOLS = {
-    ToolName.PythonInterpreter: {
-        "secrets": [
-            "PYTHON_INTERPRETER_URL",
-        ],
-    },
-    ToolName.TavilyInternetSearch: {
-        "secrets": [
-            "TAVILY_API_KEY",
-        ],
-    },
+    "python_interpreter_url": python_interpreter_url_prompt,
+    "tavily_internet_search": tavily_api_key_prompt,
 }
 
 
@@ -255,10 +249,6 @@ def start():
     # SET UP ENVIRONMENT
     for _, implementation in IMPLEMENTATIONS.items():
         implementation(secrets)
-
-    # SET UP TOOLS
-    for name, configs in TOOLS.items():
-        tool_prompt(secrets, name, configs)
 
     deployments = select_deployments_prompt(secrets)
 

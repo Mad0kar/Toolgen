@@ -61,7 +61,7 @@ export const StartOptions: React.FC<{
       features: ['Long document analysis and summarization'],
       params: {},
       onChange: () => {
-        setTimeout(() => focusComposer(), 100);
+        focusComposer();
       },
     },
   };

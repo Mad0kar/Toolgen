@@ -160,8 +160,8 @@ const Conversation: React.FC<Props> = ({ conversationId, welcomeMessageEnabled =
   };
 
   const handleSend = (msg?: string, overrideTools?: Tool[]) => {
-    const filesExist = files.length > 0 || composerFiles.length > 0;
-    const enableFileLoaderTool = filesExist && !!defaultFileLoaderTool;
+    const enableFileLoaderTool =
+      (files.length > 0 || composerFiles.length > 0) && !!defaultFileLoaderTool;
     const chatOverrideTools: Tool[] = [
       ...(overrideTools ?? []),
       ...(enableFileLoaderTool ? [{ name: defaultFileLoaderTool.name }] : []),
@@ -170,9 +170,7 @@ const Conversation: React.FC<Props> = ({ conversationId, welcomeMessageEnabled =
     if (startOption !== StartOptionKey.DOCUMENTS) {
       setStartOption(StartOptionKey.DOCUMENTS);
     }
-    if (filesExist) {
-      enableDefaultFileLoaderTool();
-    }
+    enableDefaultFileLoaderTool();
     send({ suggestedMessage: msg }, { tools: chatOverrideTools });
   };
 

@@ -73,7 +73,10 @@ services:
           ignore:
           - node_modules/
   terrarium:
-    image: ghcr.io/cohere-ai/terrarium:latest
+    build:
+      context: ./src/terrarium
+      dockerfile: Dockerfile
+    # network_mode: host
     ports:
       - '8080:8080'
     expose:

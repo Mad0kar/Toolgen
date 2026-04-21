@@ -1,12 +1,12 @@
 import { DehydratedState, QueryClient, dehydrate } from '@tanstack/react-query';
 import { GetServerSideProps, NextPage } from 'next';
-import { useEffect } from 'react';
+import { useContext, useEffect } from 'react';
 
 import { CohereClient } from '@/cohere-client';
 import Conversation from '@/components/Conversation';
 import ConversationListPanel from '@/components/ConversationList/ConversationListPanel';
 import { Layout, LayoutSection } from '@/components/Layout';
-import { useListDeployments } from '@/hooks/deployments';
+import { BannerContext } from '@/context/BannerContext';
 import { appSSR } from '@/pages/_app';
 import { useCitationsStore, useConversationStore, useParamsStore } from '@/stores';
 
@@ -15,6 +15,7 @@ type Props = {
 };
 
 const ChatPage: NextPage<Props> = () => {
+  const { setMessage } = useContext(BannerContext);
   const {
     conversation: { id },
     resetConversation,
@@ -22,9 +23,7 @@ const ChatPage: NextPage<Props> = () => {
   const { resetCitations } = useCitationsStore();
   const {
     params: { deployment },
-    setParams,
   } = useParamsStore();
-  const { data: availableDeployments } = useListDeployments();
 
   useEffect(() => {
     resetConversation();
@@ -32,10 +31,10 @@ const ChatPage: NextPage<Props> = () => {
   }, []);
 
   useEffect(() => {
-    if (!deployment && availableDeployments && availableDeployments?.length > 0) {
-      setParams({ deployment: availableDeployments[0].name });
+    if (!deployment) {
+      setMessage('Please select a deployment in the Tools Drawer > Settings tab.');
     }
-  }, [deployment, availableDeployments]);
+  }, [deployment]);
 
   return (
     <Layout>
