@@ -1,10 +1,11 @@
+import logging
 import os
 from distutils.util import strtobool
 from enum import StrEnum
 
 from backend.schemas.tool import Category, ManagedTool
-from backend.tools.function_tools import calculator, python_interpreter, market_cap
-from backend.tools.retrieval import arxiv, lang_chain, llama_index, pub_med, tavily
+from backend.tools.function_tools import calculator, python_interpreter
+from backend.tools.retrieval import lang_chain, tavily
 
 """
 List of available tools. Each tool should have a name, implementation, is_visible and category. 
@@ -25,12 +26,10 @@ class ToolName(StrEnum):
     Python_Interpreter = "Python_Interpreter"
     Calculator = "Calculator"
     Tavily_Internet_Search = "Internet Search"
-    Arxiv = "Arxiv"
-    Pub_Med = "Pub Med"
-    Market_Cap_Tool = "Market_Cap"
 
 
 use_langchain = bool(strtobool(os.getenv("USE_EXPERIMENTAL_LANGCHAIN", "false")))
+use_community_features = bool(strtobool(os.getenv("USE_COMMUNITY_FEATURES", "false")))
 
 COHERE_DEPLOYMENT_TOOLS = {
     ToolName.Wiki_Retriever_LangChain: ManagedTool(
@@ -48,13 +47,6 @@ COHERE_DEPLOYMENT_TOOLS = {
         category=Category.FileLoader,
         description="Retrieves documents from a file using LangChain.",
     ),
-    ToolName.File_Upload_LlamaIndex: ManagedTool(
-        name=ToolName.File_Upload_LlamaIndex,
-        implementation=llama_index.LlamaIndexUploadPDFRetriever,
-        is_visible=False,
-        category=Category.FileLoader,
-        description="Retrieves documents from a file using LlamaIndex.",
-    ),
     ToolName.Python_Interpreter: ManagedTool(
         name=ToolName.Python_Interpreter,
         implementation=python_interpreter.PythonInterpreterFunctionTool,
@@ -68,20 +60,6 @@ COHERE_DEPLOYMENT_TOOLS = {
         is_visible=True,
         category=Category.Function,
         description="Runs python code in a sandbox.",
-    ),
-    ToolName.Market_Cap_Tool: ManagedTool(
-    name=ToolName.Market_Cap_Tool,
-    implementation=market_cap.MarketCapTool,
-    parameter_definitions={
-        "ticker": {
-            "description": "The ticker symbol of the stock",
-            "type": "str",
-            "required": True,
-        }
-    },
-    is_visible=True,
-    category=Category.Function,
-    description="Retrieves the market cap of a stock ticker symbol.",
     ),
     ToolName.Calculator: ManagedTool(
         name=ToolName.Calculator,
@@ -103,20 +81,6 @@ COHERE_DEPLOYMENT_TOOLS = {
         is_visible=True,
         category=Category.DataLoader,
         description="Returns a list of relevant document snippets for a textual query retrieved from the internet using Tavily.",
-    ),
-    ToolName.Arxiv: ManagedTool(
-        name=ToolName.Arxiv,
-        implementation=arxiv.ArxivRetriever,
-        is_visible=True,
-        category=Category.DataLoader,
-        description="Retrieves documents from Arxiv.",
-    ),
-    ToolName.Pub_Med: ManagedTool(
-        name=ToolName.Pub_Med,
-        implementation=pub_med.PubMedRetriever,
-        is_visible=True,
-        category=Category.DataLoader,
-        description="Retrieves documents from Pub Med.",
     ),
 }
 
@@ -140,3 +104,11 @@ if use_langchain:
     AVAILABLE_TOOLS = LANGCHAIN_TOOLS
 else:
     AVAILABLE_TOOLS = COHERE_DEPLOYMENT_TOOLS
+
+if use_community_features:
+    try:
+        from community.config.tools import COMMUNITY_TOOLS
+
+        AVAILABLE_TOOLS.update(COMMUNITY_TOOLS)
+    except ImportError:
+        logging.warning("Community tools are not available. Skipping.")
