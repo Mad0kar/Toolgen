@@ -12,6 +12,7 @@ import {
   MessageType,
   isAbortedMessage,
   isErroredMessage,
+  isFulfilledMessage,
   isFulfilledOrTypingMessage,
   isLoadingMessage,
 } from '@/types/message';
@@ -24,6 +25,21 @@ type Props = {
 };
 
 const BOT_ERROR_MESSAGE = 'Unable to generate a response since an error was encountered. ';
+
+function splitPlainTextAndHtmlCode(plainString: string) {
+  const regex = /```html([\s\S]+)(```)/;
+  //capture only the code in the markdown block exlcuding the html tag
+  const code = plainString.match(regex);
+  const plainText = plainString.replace(regex, '');
+  var html = '';
+  if (code) {
+    html = code[1];
+  }
+  return {
+    plainText,
+    html,
+  };
+}
 
 export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) => {
   const isUser = message.type === MessageType.USER;
@@ -136,6 +152,23 @@ export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) =>
       >
         {content}
       </Text>
+      {isFulfilledMessage(message) && (
+        <>
+          <iframe
+            srcDoc={splitPlainTextAndHtmlCode(message.originalText).html}
+            className="border-8 border-red-500"
+            onLoad={(e) => {
+              const iframe = e.target as HTMLIFrameElement;
+              iframe.style.height = `${iframe.contentWindow?.document.body.scrollHeight}px`;
+
+              const style = document.createElement('link');
+              style.rel = 'stylesheet';
+              style.href = 'https://cdn.jsdelivr.net/npm/picnic';
+              iframe.contentDocument?.head.appendChild(style);
+            }}
+          ></iframe>
+        </>
+      )}
     </div>
   );
 };
