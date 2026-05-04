@@ -26,20 +26,23 @@ type Props = {
 
 const BOT_ERROR_MESSAGE = 'Unable to generate a response since an error was encountered. ';
 
-function splitPlainTextAndHtmlCode(plainString: string) {
+const replaceCodeBlockWithIframe = (content: string) => {
   const regex = /```html([\s\S]+)(```)/;
-  //capture only the code in the markdown block exlcuding the html tag
-  const code = plainString.match(regex);
-  const plainText = plainString.replace(regex, '');
-  var html = '';
-  if (code) {
-    html = code[1];
+
+  const match = content.match(regex);
+
+  if (!match) {
+    return content;
   }
-  return {
-    plainText,
-    html,
-  };
-}
+
+  const blob = new Blob([match[1]], { type: 'text/html' });
+  const src = URL.createObjectURL(blob);
+  const iframe = `<iframe data-src="${src}"></iframe>`;
+
+  content = content.replace(regex, iframe);
+
+  return content;
+};
 
 export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) => {
   const isUser = message.type === MessageType.USER;
@@ -116,13 +119,15 @@ export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) =>
   } else {
     const hasCitations =
       isTypingOrFulfilledMessage && message.citations && message.citations.length > 0;
+    // replace the code block with an iframe
+    const md = replaceCodeBlockWithIframe(message.text);
     content = (
       <>
         <Markdown
           className={cn({
             'text-volcanic-700': isAborted,
           })}
-          text={message.text}
+          text={md}
           customComponents={{
             img: MarkdownImage as any,
             cite: CitationTextHighlighter as any,
@@ -152,23 +157,6 @@ export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) =>
       >
         {content}
       </Text>
-      {isFulfilledMessage(message) && (
-        <>
-          <iframe
-            srcDoc={splitPlainTextAndHtmlCode(message.originalText).html}
-            className="border-8 border-red-500"
-            onLoad={(e) => {
-              const iframe = e.target as HTMLIFrameElement;
-              iframe.style.height = `${iframe.contentWindow?.document.body.scrollHeight}px`;
-
-              const style = document.createElement('link');
-              style.rel = 'stylesheet';
-              style.href = 'https://cdn.jsdelivr.net/npm/picnic';
-              iframe.contentDocument?.head.appendChild(style);
-            }}
-          ></iframe>
-        </>
-      )}
     </div>
   );
 };
