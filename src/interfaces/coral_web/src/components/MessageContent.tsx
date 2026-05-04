@@ -26,6 +26,46 @@ type Props = {
 
 const BOT_ERROR_MESSAGE = 'Unable to generate a response since an error was encountered. ';
 
+function addOnErrorToImg(html: string) {
+  //add an onError=getImage(this) to all img elements in the html string
+  //this is a hacky way to do it but it works
+  const regex = /<img([\s\S]+?)>/g;
+  const imgElements = html.match(regex);
+  if (imgElements) {
+    for (let i = 0; i < imgElements.length; i++) {
+      const imgElement = imgElements[i];
+      const newImgElement = imgElement.replace('>', ' onError="getImage(this)">');
+      html = html.replace(imgElement, newImgElement);
+    }
+  }
+  html = html + GET_IMAGE_DEF;
+  return html;
+}
+const GET_IMAGE_DEF = `
+<script>
+function getImage(element) {
+  console.log(element.alt);
+  console.log(element);
+
+  return fetch(
+    'https://api.pexels.com/v1/search?query=' + element.alt + '&per_page=1&total_results=1',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: 'JMr4ZI1Ap8UmPwuPbFBjjNzvnzD3urK7l8EQTpHa66PdDhOOfebAe426',
+      },
+      // We are not sending any data in the request, so we use null as the body.
+    }
+  )
+    .then((response) => response.json())
+    .then((data) => {
+      element.src = data['photos'][0]['src']['original'];
+      this.src = data['photos'][0]['src']['original'];
+    });
+}
+</script>
+`;
+
 const replaceCodeBlockWithIframe = (content: string) => {
   const regex = /```html([\s\S]+)(```)/;
 
@@ -35,11 +75,14 @@ const replaceCodeBlockWithIframe = (content: string) => {
     return content;
   }
 
+  console.log(match[1]);
+
   const blob = new Blob([match[1]], { type: 'text/html' });
   const src = URL.createObjectURL(blob);
   const iframe = `<iframe data-src="${src}"></iframe>`;
 
   content = content.replace(regex, iframe);
+  //content = addOnErrorToImg(content);
 
   return content;
 };
@@ -73,7 +116,7 @@ export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) =>
       <>
         <Markdown text={message.text} />
         {message.files && message.files.length > 0 && (
-          <div className="flex flex-wrap gap-2 py-2">
+          <div className="flex flex-wrap py-2 gap-2">
             {message.files.map((file) => (
               <UploadedFile key={file.id} file={file} />
             ))}
@@ -98,7 +141,7 @@ export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) =>
         )}
         {!hasLoadingMessage && (
           <span className="w-max">
-            <div className="animate-typing-ellipsis overflow-hidden whitespace-nowrap pr-1">
+            <div className="pr-1 overflow-hidden animate-typing-ellipsis whitespace-nowrap">
               ...
             </div>
           </span>
@@ -120,7 +163,7 @@ export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) =>
     const hasCitations =
       isTypingOrFulfilledMessage && message.citations && message.citations.length > 0;
     // replace the code block with an iframe
-    const md = replaceCodeBlockWithIframe(message.text);
+    const md = replaceCodeBlockWithIframe(message.originalText);
     content = (
       <>
         <Markdown
@@ -150,7 +193,7 @@ export const MessageContent: React.FC<Props> = ({ isLast, message, onRetry }) =>
   }
 
   return (
-    <div className="flex w-full flex-col justify-center gap-y-1 py-1">
+    <div className="flex flex-col justify-center w-full py-1 gap-y-1">
       <Text
         as="div"
         className="flex flex-col gap-y-1 whitespace-pre-wrap [overflow-wrap:anywhere] md:max-w-4xl"
