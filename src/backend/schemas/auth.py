@@ -1,11 +1,9 @@
-from typing import Optional
-
 from pydantic import BaseModel
 
 
-class Auth(BaseModel):
+class Login(BaseModel):
     strategy: str
+    payload: dict[str, str]
 
-
-class Login(Auth):
-    payload: Optional[dict[str, str]] = None
+    class Config:
+        from_attributes = True

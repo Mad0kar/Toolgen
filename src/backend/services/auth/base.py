@@ -8,10 +8,12 @@ class BaseAuthenticationStrategy:
 
     Attributes:
         NAME (str): The name of the strategy.
+        SHOULD_ATTACH_TO_APP (str): Whether the strategy needs to be attached to the FastAPI application.
         SHOULD_AUTH_REDIRECT (str): Whether the strategy requires a redirect to the /auth endpoint after login.
     """
 
     NAME = "Base"
+    SHOULD_ATTACH_TO_APP = False
     SHOULD_AUTH_REDIRECT = False
 
     @staticmethod
@@ -21,31 +23,17 @@ class BaseAuthenticationStrategy:
         """
         ...
 
-    @abstractmethod
-    def login(self, **kwargs: Any):
+    @classmethod
+    def login(cls, **kwargs: Any):
         """
-        Login logic: dealing with checking credentials, returning user object
-        to store into session if finished. For OAuth strategies, the next step
-        will be to authenticate.
+        Login logic: dealing with checking credentials.
         """
         ...
 
-
-class BaseOAuthStrategy(BaseAuthenticationStrategy):
-    """
-    Base strategy for OAuth, abstract class that should be inherited from.
-
-    Attributes:
-        NAME (str): The name of the strategy.
-        SHOULD_AUTH_REDIRECT (str): Whether the strategy requires a redirect to the /auth endpoint after login.
-    """
-
-    SHOULD_AUTH_REDIRECT = True
-
-    @abstractmethod
-    def authenticate(self, **kwargs: Any):
+    @classmethod
+    def authenticate(cls, **kwargs: Any):
         """
         Authentication logic: dealing with user data and returning it
-        to set the current user session for OAuth strategies.
+        to set the current user session.
         """
         ...

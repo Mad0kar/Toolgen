@@ -1,14 +1,12 @@
 from enum import StrEnum
 
-from community.tools import (
+from community.tools import Category, ManagedTool
+from community.tools.function_tools import ClinicalTrialsTool, WolframAlphaFunctionTool
+from community.tools.retrieval import (
     ArxivRetriever,
-    Category,
-    ClinicalTrials,
     ConnectorRetriever,
     LlamaIndexUploadPDFRetriever,
-    ManagedTool,
     PubMedRetriever,
-    WolframAlpha,
 )
 
 
@@ -25,13 +23,6 @@ COMMUNITY_TOOLS = {
     CommunityToolName.Arxiv: ManagedTool(
         name=CommunityToolName.Arxiv,
         implementation=ArxivRetriever,
-        parameter_definitions={
-            "query": {
-                "description": "Query for retrieval.",
-                "type": "str",
-                "required": True,
-            }
-        },
         is_visible=True,
         is_available=ArxivRetriever.is_available(),
         error_message="ArxivRetriever is not available.",
@@ -50,13 +41,6 @@ COMMUNITY_TOOLS = {
     CommunityToolName.Pub_Med: ManagedTool(
         name=CommunityToolName.Pub_Med,
         implementation=PubMedRetriever,
-        parameter_definitions={
-            "query": {
-                "description": "Query for retrieval.",
-                "type": "str",
-                "required": True,
-            }
-        },
         is_visible=True,
         is_available=PubMedRetriever.is_available(),
         error_message="PubMedRetriever is not available.",
@@ -74,18 +58,18 @@ COMMUNITY_TOOLS = {
     ),
     CommunityToolName.Wolfram_Alpha: ManagedTool(
         name=CommunityToolName.Wolfram_Alpha,
-        implementation=WolframAlpha,
+        implementation=WolframAlphaFunctionTool,
         is_visible=False,
-        is_available=WolframAlpha.is_available(),
+        is_available=WolframAlphaFunctionTool.is_available(),
         error_message="WolframAlphaFunctionTool is not available, please set the WOLFRAM_APP_ID environment variable.",
         category=Category.Function,
         description="Evaluate arithmetic expressions.",
     ),
     CommunityToolName.ClinicalTrials: ManagedTool(
         name=CommunityToolName.ClinicalTrials,
-        implementation=ClinicalTrials,
+        implementation=ClinicalTrialsTool,
         is_visible=True,
-        is_available=ClinicalTrials.is_available(),
+        is_available=ClinicalTrialsTool.is_available(),
         error_message="ClinicalTrialsTool is not available.",
         category=Category.Function,
         description="Retrieves clinical studies from ClinicalTrials.gov.",
