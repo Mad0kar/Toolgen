@@ -1,8 +1,8 @@
 {
 	"info": {
-		"_postman_id": "ddf8071a-3b8a-45d7-b4c4-abd54b0dccc2",
+		"_postman_id": "b31f64b8-be73-4d86-935f-8f2909ae104c",
 		"name": "Toolkit",
-		"schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "25545730"
 	},
 	"item": [
@@ -26,14 +26,24 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"message\": \"what is 1+1\",\n    \"tools\": [\n        {\n            \"name\": \"Calculator\"\n        }\n    ]\n}",
+							"raw": "{\n    \"message\": \"what is 1+1\",\n    \"tools\": [{\"name\": \"Calculator\"}]\n}",
 							"options": {
 								"raw": {
 									"language": "json"
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/chat-stream"
+						"url": {
+							"raw": "http://localhost:8000/v1/chat",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"chat"
+							]
+						}
 					},
 					"response": []
 				},
@@ -54,14 +64,24 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"message\": \"what is 1+1\",\n    \"tools\": [\n        {\n            \"name\": \"Calculator\"\n        }\n    ]\n}",
+							"raw": "{\n    \"message\": \"what is 1+1\",\n    \"tools\": [{\"name\": \"Calculator\"}]\n}",
 							"options": {
 								"raw": {
 									"language": "json"
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/chat"
+						"url": {
+							"raw": "http://localhost:8000/v1/chat",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"chat"
+							]
+						}
 					},
 					"response": []
 				},
@@ -87,7 +107,18 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/conversations/{id} "
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations/{id} ",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations",
+								"{id} "
+							]
+						}
 					},
 					"response": []
 				},
@@ -113,7 +144,17 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/conversations"
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations"
+							]
+						}
 					},
 					"response": []
 				},
@@ -136,7 +177,18 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/conversations/{id}"
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations/{id}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations",
+								"{id}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -159,7 +211,18 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/conversations/{id}"
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations/{id}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations",
+								"{id}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -167,8 +230,7 @@
 					"name": "List Deployments",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"url": "http://localhost:8000/v1/deployments"
+						"header": []
 					},
 					"response": []
 				},
@@ -194,7 +256,17 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/tools"
+						"url": {
+							"raw": "http://localhost:8000/v1/tools",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"tools"
+							]
+						}
 					},
 					"response": []
 				}
@@ -217,7 +289,17 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/users"
+						"url": {
+							"raw": "http://localhost:8000/v1/users",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"users"
+							]
+						}
 					},
 					"response": []
 				},
@@ -246,7 +328,6 @@
 							],
 							"port": "8000",
 							"path": [
-								"v1",
 								"users"
 							],
 							"query": [
@@ -277,7 +358,18 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/users/{id}"
+						"url": {
+							"raw": "http://localhost:8000/v1/users/{id}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"users",
+								"{id}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -298,7 +390,18 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/users/{id}"
+						"url": {
+							"raw": "http://localhost:8000/v1/users/{id}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"users",
+								"{id}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -316,7 +419,18 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/users/{id}"
+						"url": {
+							"raw": "http://localhost:8000/v1/users/{id}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"users",
+								"{id}"
+							]
+						}
 					},
 					"response": []
 				}
@@ -345,7 +459,19 @@
 								}
 							]
 						},
-						"url": "http://localhost:8000/v1/conversations/{conv_id}/upload_file"
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations/{conv_id}/upload_file",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations",
+								"{conv_id}",
+								"upload_file"
+							]
+						}
 					},
 					"response": []
 				},
@@ -371,7 +497,19 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/conversations/{conv_id}/files"
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations/{conv_id}/files",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations",
+								"{conv_id}",
+								"files"
+							]
+						}
 					},
 					"response": []
 				},
@@ -394,7 +532,20 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/conversations/{conv_id}/files/{file_id}"
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations/{conv_id}/files/{file_id}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations",
+								"{conv_id}",
+								"files",
+								"{file_id}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -417,7 +568,20 @@
 								}
 							}
 						},
-						"url": "http://localhost:8000/v1/conversations/{conv_id}/files/{file_id}"
+						"url": {
+							"raw": "http://localhost:8000/v1/conversations/{conv_id}/files/{file_id}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8000",
+							"path": [
+								"conversations",
+								"{conv_id}",
+								"files",
+								"{file_id}"
+							]
+						}
 					},
 					"response": []
 				}
@@ -440,7 +604,17 @@
 						}
 					}
 				},
-				"url": "http://localhost:8000/health"
+				"url": {
+					"raw": "http://localhost:8000/v1/health",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"health"
+					]
+				}
 			},
 			"response": []
 		}
