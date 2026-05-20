@@ -1,5 +1,6 @@
 import logging
 
+import requests
 from authlib.integrations.requests_client import OAuth2Session
 from starlette.requests import Request
 
@@ -10,8 +11,7 @@ from backend.services.auth.strategies.settings import Settings
 class OIDCSettings(Settings):
     oidc_client_id: str
     oidc_client_secret: str
-    oidc_token_endpoint: str
-    oidc_userinfo_endpoint: str
+    oidc_well_known_endpoint: str
     frontend_hostname: str
 
 
@@ -24,17 +24,32 @@ class OpenIDConnect(BaseOAuthStrategy):
 
     def __init__(self):
         try:
-            settings = OIDCSettings()
+            self.settings = OIDCSettings()
             # TODO: switch out to proper oidc strategy name
-            self.REDIRECT_URI = f"{settings.frontend_hostname}/auth/complete"
-            self.TOKEN_ENDPOINT = settings.oidc_token_endpoint
-            self.USERINFO_ENDPOINT = settings.oidc_userinfo_endpoint
+            self.REDIRECT_URI = f"{self.settings.frontend_hostname}/auth/complete"
+            self.WELL_KNOWN_ENDPOINT = self.settings.oidc_well_known_endpoint
             self.client = OAuth2Session(
-                client_id=settings.oidc_client_id,
-                client_secret=settings.oidc_client_secret,
+                client_id=self.settings.oidc_client_id,
+                client_secret=self.settings.oidc_client_secret,
             )
         except Exception as e:
             logging.error(f"Error during initializing of OpenIDConnect class: {str(e)}")
+            raise
+
+    def get_client_id(self):
+        return self.settings.oidc_client_id
+
+    async def get_endpoints(self):
+        response = requests.get(self.WELL_KNOWN_ENDPOINT)
+        endpoints = response.json()
+
+        try:
+            self.TOKEN_ENDPOINT = endpoints["token_endpoint"]
+            self.USERINFO_ENDPOINT = endpoints["userinfo_endpoint"]
+        except Exception as e:
+            logging.error(
+                f"Error fetching `token_endpoint` and `userinfo_endpoint` from {endpoints}."
+            )
             raise
 
     async def authorize(self, request: Request) -> dict | None:
