@@ -8,9 +8,11 @@ class BaseAuthenticationStrategy:
 
     Attributes:
         NAME (str): The name of the strategy.
+        SHOULD_AUTH_REDIRECT (str): Whether the strategy requires a redirect to the /auth endpoint after login.
     """
 
     NAME = "Base"
+    SHOULD_AUTH_REDIRECT = False
 
     @staticmethod
     def get_required_payload(self) -> List[str]:
@@ -22,49 +24,35 @@ class BaseAuthenticationStrategy:
     @abstractmethod
     def login(self, **kwargs: Any):
         """
-        Check email/password credentials and return JWT token.
+        Login logic: dealing with checking credentials, returning user object
+        to store into session if finished. For OAuth strategies, the next step
+        will be to authenticate.
         """
         ...
 
 
-class BaseOAuthStrategy:
+class BaseOAuthStrategy(BaseAuthenticationStrategy):
     """
     Base strategy for OAuth, abstract class that should be inherited from.
 
     Attributes:
         NAME (str): The name of the strategy.
+        SHOULD_AUTH_REDIRECT (str): Whether the strategy requires a redirect to the /auth endpoint after login.
+        REDIRECT_METHOD_NAME (str | None): The router method name that should be used for redirect callback.
     """
 
-    NAME = None
+    SHOULD_AUTH_REDIRECT = True
+    REDIRECT_METHOD_NAME = None
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._post_init_check()
-
-    def _post_init_check(self):
-        if any(
-            [
-                self.NAME is None,
-            ]
-        ):
-            raise ValueError(f"{self.__name__} must have NAME parameter(s) defined.")
+    def __init__subclass(cls, **kwargs):
+        super().__init__subclass__(**kwargs)
+        if cls.REDIRECT_METHOD_NAME is None:
+            raise ValueError(
+                f"{cls.__name__} must have a REDIRECT_METHOD_NAME defined, and a corresponding router definition."
+            )
 
     @abstractmethod
-    def get_client_id(self, **kwargs: Any):
-        """
-        Retrieves the OAuth app's client ID
-        """
-        ...
-
-    @abstractmethod
-    async def get_endpoints(self, **kwargs: Any):
-        """
-        Retrieves the /token and /userinfo endpoints.
-        """
-        ...
-
-    @abstractmethod
-    async def authorize(self, **kwargs: Any):
+    def authenticate(self, **kwargs: Any):
         """
         Authentication logic: dealing with user data and returning it
         to set the current user session for OAuth strategies.

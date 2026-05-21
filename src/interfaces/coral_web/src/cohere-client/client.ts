@@ -44,12 +44,6 @@ export class CohereStreamError extends Error {
   }
 }
 
-export class CohereUnauthorizedError extends Error {
-  constructor() {
-    super('Unauthorized');
-  }
-}
-
 export type Fetch = (input: RequestInfo, init?: RequestInit) => Promise<Response>;
 
 export type ExperimentalFeatures = {
@@ -61,26 +55,14 @@ export class CohereClient {
   private readonly hostname: string;
   private readonly fetch: Fetch;
   private readonly source: string;
-  private authToken?: string;
 
   public cohereService?: DefaultService;
   public request?: any;
 
-  constructor({
-    hostname,
-    source,
-    fetch,
-    authToken,
-  }: {
-    hostname: string;
-    source: string;
-    fetch: Fetch;
-    authToken?: string;
-  }) {
+  constructor({ hostname, source, fetch }: { hostname: string; source: string; fetch: Fetch }) {
     this.hostname = hostname;
     this.source = source;
     this.fetch = fetch;
-    this.authToken = authToken;
   }
 
   public async uploadFile({
@@ -112,10 +94,6 @@ export class CohereClient {
 
     const body = await response.json();
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError(
         body?.message || body?.error || 'Something went wrong',
@@ -135,10 +113,6 @@ export class CohereClient {
     });
 
     const body = await response.json();
-
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
 
     if (response.status !== 200) {
       throw new CohereNetworkError(
@@ -160,10 +134,6 @@ export class CohereClient {
     );
 
     const body = await response.json();
-
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
 
     if (response.status !== 200) {
       throw new CohereNetworkError(
@@ -254,10 +224,6 @@ export class CohereClient {
 
     const body = await response.json();
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError(
         body?.message || body?.error || 'Something went wrong',
@@ -281,10 +247,6 @@ export class CohereClient {
     });
     const body = await response.json();
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError(
         body?.message || body?.error || 'Something went wrong',
@@ -302,10 +264,6 @@ export class CohereClient {
     });
 
     const body = await response.json();
-
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
 
     if (response.status !== 200) {
       throw new CohereNetworkError(
@@ -334,10 +292,6 @@ export class CohereClient {
 
     const body = await response.json();
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError(
         body?.message || body?.error || 'Something went wrong',
@@ -357,10 +311,6 @@ export class CohereClient {
 
     const body = await response.json();
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError(
         body?.message || body?.error || 'Something went wrong',
@@ -379,10 +329,6 @@ export class CohereClient {
 
     const body = await response.json();
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError(
         body?.message || body?.error || 'Something went wrong',
@@ -400,10 +346,6 @@ export class CohereClient {
     });
 
     const body = await response.json();
-
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
 
     if (response.status !== 200) {
       throw new CohereNetworkError(
@@ -425,10 +367,6 @@ export class CohereClient {
       }
     );
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError('Something went wrong', response.status);
     }
@@ -442,10 +380,6 @@ export class CohereClient {
 
     const body = await response.json();
 
-    if (response.status === 401) {
-      throw new CohereUnauthorizedError();
-    }
-
     if (response.status !== 200) {
       throw new CohereNetworkError(
         body?.message || body?.error || 'Something went wrong',
@@ -454,98 +388,6 @@ export class CohereClient {
     }
 
     return body as ExperimentalFeatures;
-  }
-
-  public async login({ email, password }: { email: string; password: string }) {
-    const response = await this.fetch(`${this.getEndpoint('login')}`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({
-        strategy: 'Basic',
-        payload: { email, password },
-      }),
-    });
-
-    const body = await response.json();
-    this.authToken = body.token;
-
-    if (response.status !== 200) {
-      throw new CohereNetworkError('Something went wrong', response.status);
-    }
-
-    return body as { token: string };
-  }
-
-  public async logout() {
-    const response = await this.fetch(`${this.getEndpoint('logout')}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-
-    this.authToken = undefined;
-
-    if (response.status !== 200) {
-      throw new CohereNetworkError('Something went wrong', response.status);
-    }
-  }
-
-  public async getAuthStrategies() {
-    const response = await this.fetch(`${this.getEndpoint('auth_strategies')}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-
-    const body = await response.json();
-
-    if (response.status !== 200) {
-      throw new CohereNetworkError('Something went wrong', response.status);
-    }
-
-    return body as { strategies: string[] };
-  }
-
-  public async createUser({
-    name,
-    email,
-    password,
-  }: {
-    name: string;
-    email: string;
-    password: string;
-  }) {
-    const response = await this.fetch(`${this.getEndpoint('users')}/`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({
-        fullname: name,
-        email,
-        password,
-      }),
-    });
-
-    const body = await response.json();
-
-    if (response.status !== 200) {
-      throw new CohereNetworkError('Something went wrong', response.status);
-    }
-
-    return body as {};
-  }
-
-  public async googleSSOAuth({ code }: { code: string }) {
-    const response = await this.fetch(`${this.getEndpoint('google/auth')}?code=${code}`, {
-      method: 'GET',
-      headers: this.getHeaders()
-    });
-
-    const body = await response.json();
-    this.authToken = body.token;
-
-    if (response.status !== 200) {
-      throw new CohereNetworkError('Something went wrong', response.status);
-    }
-
-    return body as { token: string };
   }
 
   private getEndpoint(
@@ -557,11 +399,6 @@ export class CohereClient {
       | 'tools'
       | 'deployments'
       | 'experimental_features'
-      | 'login'
-      | 'logout'
-      | 'auth_strategies'
-      | 'users'
-      | 'google/auth'
   ) {
     return `${this.hostname}/v1/${endpoint}`;
   }
@@ -569,7 +406,6 @@ export class CohereClient {
   private getHeaders(omitContentType = false) {
     const headers: HeadersInit = {
       ...(omitContentType ? {} : { 'Content-Type': 'application/json' }),
-      ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
       'User-Id': 'user-id',
     };
     return headers;

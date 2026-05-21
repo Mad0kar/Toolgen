@@ -1,7 +1,7 @@
 import logging
+from typing import List
 
-import requests
-from authlib.integrations.requests_client import OAuth2Session
+from authlib.integrations.starlette_client import OAuth
 from starlette.requests import Request
 
 from backend.services.auth.strategies.base import BaseOAuthStrategy
@@ -11,8 +11,7 @@ from backend.services.auth.strategies.settings import Settings
 class OIDCSettings(Settings):
     oidc_client_id: str
     oidc_client_secret: str
-    oidc_well_known_endpoint: str
-    frontend_hostname: str
+    oidc_config_endpoint: str
 
 
 class OpenIDConnect(BaseOAuthStrategy):
@@ -21,40 +20,49 @@ class OpenIDConnect(BaseOAuthStrategy):
     """
 
     NAME = "OIDC"
+    REDIRECT_METHOD_NAME = "oidc_authenticate"
 
     def __init__(self):
         try:
-            self.settings = OIDCSettings()
-            # TODO: switch out to proper oidc strategy name
-            self.REDIRECT_URI = f"{self.settings.frontend_hostname}/auth/complete"
-            self.WELL_KNOWN_ENDPOINT = self.settings.oidc_well_known_endpoint
-            self.client = OAuth2Session(
-                client_id=self.settings.oidc_client_id,
-                client_secret=self.settings.oidc_client_secret,
+            settings = OIDCSettings()
+            self.oauth = OAuth()
+            self.oauth.register(
+                name="auth0",
+                client_id=settings.oidc_client_id,
+                client_secret=settings.oidc_client_secret,
+                server_metadata_url=settings.oidc_config_endpoint,
+                client_kwargs={"scope": "openid email profile"},
             )
         except Exception as e:
             logging.error(f"Error during initializing of OpenIDConnect class: {str(e)}")
             raise
 
-    def get_client_id(self):
-        return self.settings.oidc_client_id
-
-    async def get_endpoints(self):
-        response = requests.get(self.WELL_KNOWN_ENDPOINT)
-        endpoints = response.json()
-
-        try:
-            self.TOKEN_ENDPOINT = endpoints["token_endpoint"]
-            self.USERINFO_ENDPOINT = endpoints["userinfo_endpoint"]
-        except Exception as e:
-            logging.error(
-                f"Error fetching `token_endpoint` and `userinfo_endpoint` from {endpoints}."
-            )
-            raise
-
-    async def authorize(self, request: Request) -> dict | None:
+    @staticmethod
+    def get_required_payload() -> List[str]:
         """
-        Authenticates the current user using their OIDC account.
+        Retrieves the required /login payload for the Auth strategy.
+
+        Returns:
+            List[str]: List of required variables.
+        """
+        return []
+
+    async def login(self, request: Request, redirect_uri: str) -> dict | None:
+        """
+        Redirects to the /auth endpoint for user to sign onto their SSO account.
+
+        Args:
+            request (Request): Current request.
+            redirect_uri (str): Redirect URI.
+
+        Returns:
+            Redirect to SSO.
+        """
+        return await self.oauth.auth0.authorize_redirect(request, redirect_uri)
+
+    async def authenticate(self, request: Request) -> dict | None:
+        """
+        Authenticates the current user using their SSO account.
 
         Args:
             request (Request): Current request.
@@ -62,11 +70,4 @@ class OpenIDConnect(BaseOAuthStrategy):
         Returns:
             Access token.
         """
-        token = self.client.fetch_token(
-            url=self.TOKEN_ENDPOINT,
-            authorization_response=str(request.url),
-            redirect_uri=self.redirect_uri,
-        )
-        user_info = self.client.get(self.USERINFO_ENDPOINT)
-
-        return user_info.json()
+        return await self.oauth.google.authorize_access_token(request)

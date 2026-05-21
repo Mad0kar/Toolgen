@@ -1,7 +1,7 @@
 import logging
+from typing import List
 
-import requests
-from authlib.integrations.requests_client import OAuth2Session
+from authlib.integrations.starlette_client import OAuth
 from starlette.requests import Request
 
 from backend.services.auth.strategies.base import BaseOAuthStrategy
@@ -11,7 +11,6 @@ from backend.services.auth.strategies.settings import Settings
 class GoogleOauthSettings(Settings):
     google_client_id: str
     google_client_secret: str
-    frontend_hostname: str
 
 
 class GoogleOAuth(BaseOAuthStrategy):
@@ -20,37 +19,47 @@ class GoogleOAuth(BaseOAuthStrategy):
     """
 
     NAME = "Google"
-    WELL_KNOWN_ENDPOINT = "https://accounts.google.com/.well-known/openid-configuration"
+    REDIRECT_METHOD_NAME = "google_authenticate"
 
     def __init__(self):
         try:
-            self.settings = GoogleOauthSettings()
-            self.REDIRECT_URI = f"{self.settings.frontend_hostname}/auth/complete"
-            self.client = OAuth2Session(
-                client_id=self.settings.google_client_id,
-                client_secret=self.settings.google_client_secret,
+            settings = GoogleOauthSettings()
+            self.oauth = OAuth()
+            self.oauth.register(
+                name="google",
+                server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+                client_id=settings.google_client_id,
+                client_secret=settings.google_client_secret,
+                client_kwargs={"scope": "openid email profile"},
             )
         except Exception as e:
             logging.error(f"Error during initializing of GoogleOAuth class: {str(e)}")
             raise
 
-    def get_client_id(self):
-        return self.settings.google_client_id
+    @staticmethod
+    def get_required_payload() -> List[str]:
+        """
+        Retrieves the required /login payload for the Auth strategy.
 
-    async def get_endpoints(self):
-        response = requests.get(self.WELL_KNOWN_ENDPOINT)
-        endpoints = response.json()
+        Returns:
+            List[str]: List of required variables.
+        """
+        return []
 
-        try:
-            self.TOKEN_ENDPOINT = endpoints["token_endpoint"]
-            self.USERINFO_ENDPOINT = endpoints["userinfo_endpoint"]
-        except Exception as e:
-            logging.error(
-                f"Error fetching `token_endpoint` and `userinfo_endpoint` from {endpoints}."
-            )
-            raise
+    async def login(self, request: Request, redirect_uri: str) -> dict | None:
+        """
+        Redirects to the /auth endpoint for user to sign onto their Google account.
 
-    async def authorize(self, request: Request) -> dict | None:
+        Args:
+            request (Request): Current request.
+            redirect_uri (str): Redirect URI.
+
+        Returns:
+            Redirect to Google OAuth.
+        """
+        return await self.oauth.google.authorize_redirect(request, redirect_uri)
+
+    async def authenticate(self, request: Request) -> dict | None:
         """
         Authenticates the current user using their Google account.
 
@@ -60,14 +69,4 @@ class GoogleOAuth(BaseOAuthStrategy):
         Returns:
             Access token.
         """
-        # Retrieve the /token and /userinfo endpoints
-        await self.get_endpoints()
-
-        token = self.client.fetch_token(
-            url=self.TOKEN_ENDPOINT,
-            authorization_response=str(request.url),
-            redirect_uri=self.REDIRECT_URI,
-        )
-        user_info = self.client.get(self.USERINFO_ENDPOINT)
-
-        return user_info.json()
+        return await self.oauth.google.authorize_access_token(request)

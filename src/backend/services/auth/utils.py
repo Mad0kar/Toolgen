@@ -24,7 +24,7 @@ def is_enabled_authentication_strategy(strategy_name: str) -> bool:
     return True
 
 
-def get_or_create_user(session: Session, token_user: dict[str, str]) -> dict:
+def get_or_create_user(session: Session, token_user: dict[str, str]) -> User:
     """
     Gets or creates a user when authenticating them.
 
@@ -39,18 +39,14 @@ def get_or_create_user(session: Session, token_user: dict[str, str]) -> dict:
     email = token_user.get("email")
     fullname = token_user.get("name")
 
-    user = session.query(User).filter(User.email == email).first()
+    user = Session.query(User).filter(User.email == email).first()
 
     # Create User if DNE
     if not user:
         db_user = User(fullname=fullname, email=email)
         user = user_crud.create_user(session, db_user)
 
-    return {
-        "id": user.id,
-        "fullname": user.fullname,
-        "email": user.email,
-    }
+    return user
 
 
 def get_header_user_id(request: Request) -> str:
