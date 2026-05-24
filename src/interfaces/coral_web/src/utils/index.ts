@@ -7,6 +7,4 @@ export * from './file';
 export * from './format';
 export * from './grounding';
 export * from './pluralize';
-export * from './queryString';
-export * from './simpleEmailValidation';
 export * from './urls';
