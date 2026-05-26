@@ -20,10 +20,21 @@ import secrets
 print(secrets.token_hex(32))
 ```
 
-## Configuring your OAuth app's Redirect URI
+## Configuring your OAuth app
+
+### Redirect URI
 
 When configuring your OAuth apps, make sure to whitelist the Redirect URI to the frontend endpoint, it should look like 
-`<FRONTEND_HOST>/auth/<STRATEGY_NAME>`. For example, your Redirect URI will be `http://localhost:4000/auth/google` if you're running the GoogleOAuth class locally.
+`<FRONTEND_HOST>/auth/<STRATEGY_NAME>`. For example, your Redirect URI will be `http://localhost:4000/auth/google` if you're running the GoogleOAuth class locally. The strategy name is defined in the `NAME` class attribute.
+
+### Enabling Refresh Tokens
+
+To enable refresh tokens, you must implement the `get_refresh_token_params()` method in your auth strategy class. This should return a dictionary containing key-value pairs that contain the query parameters the auth provider needs to return a refresh token. For example, if your auth provider requires a `?scope=offline` query parameter, you should add:
+
+```python
+def get_refresh_token_params(self):
+    return {"scope": "offline"}
+```
 
 ## Implementing new Auth strategies
 

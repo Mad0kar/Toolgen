@@ -1,8 +1,6 @@
 import logging
-from typing import List
 
-from authlib.integrations.starlette_client import OAuth
-from starlette.requests import Request
+from authlib.integrations.requests_client import OAuth2Session
 
 from backend.services.auth.strategies.base import BaseOAuthStrategy
 from backend.services.auth.strategies.settings import Settings
@@ -11,6 +9,7 @@ from backend.services.auth.strategies.settings import Settings
 class GoogleOAuthSettings(Settings):
     google_client_id: str
     google_client_secret: str
+    frontend_hostname: str
 
 
 class GoogleOAuth(BaseOAuthStrategy):
@@ -19,54 +18,25 @@ class GoogleOAuth(BaseOAuthStrategy):
     """
 
     NAME = "Google"
-    REDIRECT_METHOD_NAME = "google_authenticate"
+    WELL_KNOWN_ENDPOINT = "https://accounts.google.com/.well-known/openid-configuration"
 
     def __init__(self):
         try:
-            settings = GoogleOAuthSettings()
-            self.oauth = OAuth()
-            self.oauth.register(
-                name="google",
-                server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-                client_id=settings.google_client_id,
-                client_secret=settings.google_client_secret,
-                client_kwargs={"scope": "openid email profile"},
+            self.settings = GoogleOAuthSettings()
+            self.REDIRECT_URI = f"{self.settings.frontend_hostname}/auth/google"
+            self.client = OAuth2Session(
+                client_id=self.settings.google_client_id,
+                client_secret=self.settings.google_client_secret,
             )
         except Exception as e:
             logging.error(f"Error during initializing of GoogleOAuth class: {str(e)}")
             raise
 
-    @staticmethod
-    def get_required_payload() -> List[str]:
-        """
-        Retrieves the required /login payload for the Auth strategy.
+    def get_client_id(self):
+        return self.settings.google_client_id
 
-        Returns:
-            List[str]: List of required variables.
-        """
-        return []
+    def get_authorization_endpoint(self):
+        return self.AUTHORIZATION_ENDPOINT
 
-    async def login(self, request: Request, redirect_uri: str) -> dict | None:
-        """
-        Redirects to the /auth endpoint for user to sign onto their Google account.
-
-        Args:
-            request (Request): Current request.
-            redirect_uri (str): Redirect URI.
-
-        Returns:
-            Redirect to Google OAuth.
-        """
-        return await self.oauth.google.authorize_redirect(request, redirect_uri)
-
-    async def authenticate(self, request: Request) -> dict | None:
-        """
-        Authenticates the current user using their Google account.
-
-        Args:
-            request (Request): Current request.
-
-        Returns:
-            Access token.
-        """
-        return await self.oauth.google.authorize_access_token(request)
+    def get_refresh_token_params(self):
+        return {"access_type": "offline", "prompt": "consent"}

@@ -1,4 +1,10 @@
+from typing import Union
+
 from backend.services.auth import BasicAuthentication, GoogleOAuth, OpenIDConnect
+from backend.services.auth.strategies.base import (
+    BaseAuthenticationStrategy,
+    BaseOAuthStrategy,
+)
 
 # Add Auth strategy classes here to enable them
 # Ex: [BasicAuthentication]
@@ -21,3 +27,21 @@ def is_authentication_enabled() -> bool:
         return True
 
     return False
+
+
+def get_auth_strategy(
+    strategy_name: str,
+) -> Union[BaseAuthenticationStrategy, BaseOAuthStrategy]:
+    if strategy_name not in ENABLED_AUTH_STRATEGY_MAPPING.keys():
+        return None
+
+    return ENABLED_AUTH_STRATEGY_MAPPING[strategy_name]
+
+
+async def get_auth_strategy_endpoints() -> None:
+    """
+    Fetches the endpoints for each enabled strategy.
+    """
+    for strategy in ENABLED_AUTH_STRATEGY_MAPPING.values():
+        if hasattr(strategy, "get_endpoints"):
+            await strategy.get_endpoints()
