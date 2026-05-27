@@ -1,7 +1,7 @@
 import logging
+from typing import List
 
-import requests
-from authlib.integrations.requests_client import OAuth2Session
+from authlib.integrations.starlette_client import OAuth
 from starlette.requests import Request
 
 from backend.services.auth.strategies.base import BaseOAuthStrategy
@@ -11,8 +11,7 @@ from backend.services.auth.strategies.settings import Settings
 class OIDCSettings(Settings):
     oidc_client_id: str
     oidc_client_secret: str
-    oidc_well_known_endpoint: str
-    frontend_hostname: str
+    oidc_config_endpoint: str
 
 
 class OpenIDConnect(BaseOAuthStrategy):
@@ -21,25 +20,54 @@ class OpenIDConnect(BaseOAuthStrategy):
     """
 
     NAME = "OIDC"
+    REDIRECT_METHOD_NAME = "oidc_authenticate"
 
     def __init__(self):
         try:
-            self.settings = OIDCSettings()
-            self.REDIRECT_URI = f"{self.settings.frontend_hostname}/auth/oidc"
-            self.WELL_KNOWN_ENDPOINT = self.settings.oidc_well_known_endpoint
-            self.client = OAuth2Session(
-                client_id=self.settings.oidc_client_id,
-                client_secret=self.settings.oidc_client_secret,
+            settings = OIDCSettings()
+            self.oauth = OAuth()
+            self.oauth.register(
+                name="auth0",
+                client_id=settings.oidc_client_id,
+                client_secret=settings.oidc_client_secret,
+                server_metadata_url=settings.oidc_config_endpoint,
+                client_kwargs={"scope": "openid email profile"},
             )
         except Exception as e:
             logging.error(f"Error during initializing of OpenIDConnect class: {str(e)}")
             raise
 
-    def get_client_id(self):
-        return self.settings.oidc_client_id
+    @staticmethod
+    def get_required_payload() -> List[str]:
+        """
+        Retrieves the required /login payload for the Auth strategy.
 
-    def get_authorization_endpoint(self):
-        return self.AUTHORIZATION_ENDPOINT
+        Returns:
+            List[str]: List of required variables.
+        """
+        return []
 
-    def get_refresh_token_params(self):
-        return None
+    async def login(self, request: Request, redirect_uri: str) -> dict | None:
+        """
+        Redirects to the /auth endpoint for user to sign onto their SSO account.
+
+        Args:
+            request (Request): Current request.
+            redirect_uri (str): Redirect URI.
+
+        Returns:
+            Redirect to SSO.
+        """
+        return await self.oauth.auth0.authorize_redirect(request, redirect_uri)
+
+    async def authenticate(self, request: Request) -> dict | None:
+        """
+        Authenticates the current user using their SSO account.
+
+        Args:
+            request (Request): Current request.
+
+        Returns:
+            Access token.
+        """
+        return await self.oauth.google.authorize_access_token(request)

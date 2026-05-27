@@ -1,6 +1,7 @@
 import { Transition } from '@headlessui/react';
 import { DehydratedState, QueryClient, dehydrate } from '@tanstack/react-query';
 import { GetServerSideProps, NextPage } from 'next';
+import { useRouter } from 'next/router';
 import { useContext, useEffect } from 'react';
 
 import { CohereClient } from '@/cohere-client';
@@ -33,6 +34,8 @@ const AgentsPage: NextPage<Props> = () => {
   const {
     settings: { isConvListPanelOpen, isMobileConvListPanelOpen },
   } = useSettingsStore();
+  const router = useRouter();
+  const agentId = router.query.assistantId as string | undefined;
   const isDesktop = useIsDesktop();
   const isMobile = !isDesktop;
 
@@ -75,14 +78,14 @@ const AgentsPage: NextPage<Props> = () => {
       <MainSection>
         <div className="flex h-full">
           <Transition
-            as="main"
+            as="section"
             show={(isMobileConvListPanelOpen && isMobile) || (isConvListPanelOpen && isDesktop)}
             enterFrom="translate-x-full lg:translate-x-0 lg:w-0"
             enterTo="translate-x-0 lg:w-[300px]"
             leaveFrom="translate-x-0 lg:w-[300px]"
             leaveTo="translate-x-full lg:translate-x-0 lg:w-0"
             className={cn(
-              'z-main-section flex flex-grow lg:min-w-0',
+              'z-main-section flex lg:min-w-0',
               'absolute h-full w-full lg:static lg:h-auto',
               'border-0 border-marble-400 md:border-r',
               'transition-[transform, width] duration-500 ease-in-out'
@@ -91,7 +94,7 @@ const AgentsPage: NextPage<Props> = () => {
             <ConversationListPanel />
           </Transition>
           <Transition
-            as="div"
+            as="main"
             show={isDesktop || !isMobileConvListPanelOpen}
             enterFrom="-translate-x-full"
             enterTo="translate-x-0"
@@ -102,7 +105,7 @@ const AgentsPage: NextPage<Props> = () => {
               'transition-transform duration-500 ease-in-out'
             )}
           >
-            <Conversation conversationId={id} startOptionsEnabled />
+            <Conversation conversationId={id} agentId={agentId} startOptionsEnabled />
           </Transition>
         </div>
       </MainSection>

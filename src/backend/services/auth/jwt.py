@@ -16,16 +16,16 @@ class JWTService:
     ALGORITHM = "HS256"
 
     def __init__(self):
-        secret_key = os.environ.get("AUTH_SECRET_KEY")
+        secret_key = os.environ.get("JWT_SECRET_KEY")
 
         if not secret_key:
             raise ValueError(
-                "AUTH_SECRET_KEY environment variable is missing, and is required to enable authentication."
+                "JWT_SECRET_KEY environment variable is missing, and is required to enable authentication."
             )
 
         self.secret_key = secret_key
 
-    def create_and_encode_jwt(self, user: dict, strategy_name: str) -> str:
+    def create_and_encode_jwt(self, user: dict) -> str:
         """
         Creates a payload based on user info and creates a JWT token.
 
@@ -41,7 +41,6 @@ class JWTService:
             "iat": now,
             "exp": now + datetime.timedelta(hours=self.EXPIRY_HOURS),
             "jti": str(uuid.uuid4()),
-            "strategy": strategy_name,
             "context": user,
         }
 
@@ -65,14 +64,8 @@ class JWTService:
             )
             return decoded_payload
         except jwt.ExpiredSignatureError:
-            logger.warning("JWT Token has expired.")
-            decoded_payload = jwt.decode(
-                token,
-                self.secret_key,
-                algorithms=[self.ALGORITHM],
-                options={"verify_exp": False},
-            )
-            return decoded_payload
+            logger.warning("Token has expired.")
+            return None
         except jwt.InvalidTokenError:
-            logger.warning("JWT Token is invalid.")
+            logger.warning("Invalid token.")
             return None

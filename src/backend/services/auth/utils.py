@@ -1,13 +1,30 @@
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from backend.config.auth import is_authentication_enabled
+from backend.config.auth import ENABLED_AUTH_STRATEGY_MAPPING, is_authentication_enabled
 from backend.crud import user as user_crud
 from backend.database_models import User
 from backend.services.auth.jwt import JWTService
 
 
-def get_or_create_user(session: Session, token_user: dict[str, str]) -> dict:
+def is_enabled_authentication_strategy(strategy_name: str) -> bool:
+    """
+    Check whether a given authentication strategy is enabled in config/auth.py
+
+    Args:
+        strategy_name (str): Name the of auth strategy.
+
+    Returns:
+        bool: Whether that strategy is currently enabled
+    """
+    # Check the strategy is valid and enabled
+    if strategy_name not in ENABLED_AUTH_STRATEGY_MAPPING.keys():
+        return False
+
+    return True
+
+
+def get_or_create_user(session: Session, token_user: dict[str, str]) -> User:
     """
     Gets or creates a user when authenticating them.
 
@@ -22,18 +39,14 @@ def get_or_create_user(session: Session, token_user: dict[str, str]) -> dict:
     email = token_user.get("email")
     fullname = token_user.get("name")
 
-    user = session.query(User).filter(User.email == email).first()
+    user = Session.query(User).filter(User.email == email).first()
 
     # Create User if DNE
     if not user:
         db_user = User(fullname=fullname, email=email)
         user = user_crud.create_user(session, db_user)
 
-    return {
-        "id": user.id,
-        "fullname": user.fullname,
-        "email": user.email,
-    }
+    return user
 
 
 def get_header_user_id(request: Request) -> str:
