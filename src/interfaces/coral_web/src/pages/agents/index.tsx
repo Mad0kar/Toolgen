@@ -1,5 +1,5 @@
 import { Transition } from '@headlessui/react';
-import { DehydratedState, QueryClient, dehydrate } from '@tanstack/react-query';
+import { QueryClient, dehydrate } from '@tanstack/react-query';
 import { GetServerSideProps, NextPage } from 'next';
 import { useRouter } from 'next/router';
 import { useContext, useEffect } from 'react';
@@ -20,13 +20,10 @@ import {
   useParamsStore,
   useSettingsStore,
 } from '@/stores';
+import { getQueryString } from '@/utils';
 import { cn } from '@/utils';
 
-type Props = {
-  reactQueryState: DehydratedState;
-};
-
-const AgentsPage: NextPage<Props> = () => {
+const AgentsPage: NextPage = () => {
   const {
     conversation: { id },
     resetConversation,
@@ -35,7 +32,7 @@ const AgentsPage: NextPage<Props> = () => {
     settings: { isConvListPanelOpen, isMobileConvListPanelOpen },
   } = useSettingsStore();
   const router = useRouter();
-  const agentId = router.query.assistantId as string | undefined;
+  const agentId = getQueryString(router.query.agentId);
   const isDesktop = useIsDesktop();
   const isMobile = !isDesktop;
 

@@ -11,14 +11,13 @@ import { Layout, LayoutSection } from '@/components/Layout';
 import { Spinner } from '@/components/Shared';
 import { TOOL_PYTHON_INTERPRETER_ID } from '@/constants';
 import { BannerContext } from '@/context/BannerContext';
-import { useServerAuthStrategies } from '@/hooks/authStrategies';
 import { useConversation } from '@/hooks/conversation';
 import { useListAllDeployments } from '@/hooks/deployments';
 import { useExperimentalFeatures } from '@/hooks/experimentalFeatures';
-import { useSession } from '@/hooks/session';
 import { appSSR } from '@/pages/_app';
 import { useCitationsStore, useConversationStore, useParamsStore } from '@/stores';
 import { OutputFiles } from '@/stores/slices/citationsSlice';
+import { getQueryString } from '@/utils';
 import { createStartEndKey, mapHistoryToMessages } from '@/utils';
 import { parsePythonInterpreterToolFields } from '@/utils/tools';
 
@@ -39,9 +38,7 @@ const ConversationPage: NextPage<Props> = () => {
   const isLangchainModeOn = !!experimentalFeatures?.USE_EXPERIMENTAL_LANGCHAIN;
   const { setMessage } = useContext(BannerContext);
 
-  const urlConversationId = Array.isArray(router.query.id)
-    ? router.query.id[0]
-    : (router.query.id as string);
+  const urlConversationId = getQueryString(router.query.id);
 
   const {
     data: conversation,

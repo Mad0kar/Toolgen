@@ -10,12 +10,13 @@ import { useIsDesktop } from '@/hooks/breakpoint';
 import { WelcomeGuideStep, useWelcomeGuideState } from '@/hooks/ftux';
 import { useSession } from '@/hooks/session';
 import {
+  useAgentsStore,
   useCitationsStore,
   useConversationStore,
   useParamsStore,
   useSettingsStore,
 } from '@/stores';
-import { cn } from '@/utils';
+import { cn, getQueryString } from '@/utils';
 
 const useHeaderMenu = ({
   conversationId,
@@ -30,19 +31,24 @@ const useHeaderMenu = ({
   const { data: agent } = useAgent({ agentId });
   const isAgentCreator = userId === agent?.user_id;
 
+  const { setSettings } = useSettingsStore();
   const {
-    settings: { isEditAgentPanelOpen },
-    setSettings,
-  } = useSettingsStore();
+    agents: { isEditAgentPanelOpen },
+    setEditAgentPanelOpen,
+  } = useAgentsStore();
   const { resetFileParams } = useParamsStore();
   const router = useRouter();
   const { welcomeGuideState, progressWelcomeGuideStep, finishWelcomeGuide } =
     useWelcomeGuideState();
 
   const handleNewChat = () => {
-    const assistantId = router.query.assistantId;
+    const agentId = getQueryString(router.query.agentId);
 
-    const url = assistantId ? `/agents/?assistantId=${assistantId}` : '/agents';
+    const url = agentId
+      ? `/agents/${agentId}`
+      : router.asPath.includes('/agents')
+      ? '/agents'
+      : '/';
     router.push(url, undefined, { shallow: true });
     resetConversation();
     resetCitations();
@@ -60,7 +66,7 @@ const useHeaderMenu = ({
   };
 
   const handleOpenAgentDrawer = () => {
-    setSettings({ isEditAgentPanelOpen: !isEditAgentPanelOpen });
+    setEditAgentPanelOpen(!isEditAgentPanelOpen);
   };
 
   const menuItems: KebabMenuItem[] = [
@@ -103,6 +109,7 @@ export const Header: React.FC<Props> = ({ isStreaming, agentId }) => {
     setSettings,
     setIsConvListPanelOpen,
   } = useSettingsStore();
+  const { setAgentsSidePanelOpen } = useAgentsStore();
 
   const { welcomeGuideState } = useWelcomeGuideState();
 
@@ -139,7 +146,8 @@ export const Header: React.FC<Props> = ({ isStreaming, agentId }) => {
               <IconButton
                 iconName="side-panel"
                 onClick={() => {
-                  setSettings({ isConfigDrawerOpen: false, isAgentsSidePanelOpen: false });
+                  setSettings({ isConfigDrawerOpen: false });
+                  setAgentsSidePanelOpen(false);
                   setIsConvListPanelOpen(true);
                 }}
               />

@@ -10,6 +10,7 @@ import { HotKeysProvider } from '@/components/Shared/HotKeys';
 import { WelcomeGuideTooltip } from '@/components/WelcomeGuideTooltip';
 import { ReservedClasses } from '@/constants';
 import { useChatHotKeys } from '@/hooks/actions';
+import { useRecentAgents } from '@/hooks/agents';
 import { useChat } from '@/hooks/chat';
 import { useDefaultFileLoaderTool, useFileActions, useFilesInConversation } from '@/hooks/files';
 import { WelcomeGuideStep, useWelcomeGuideState } from '@/hooks/ftux';
@@ -24,7 +25,6 @@ import {
 } from '@/stores';
 import { ConfigurableParams } from '@/stores/slices/paramsSlice';
 import { ChatMessage } from '@/types/message';
-import { cn } from '@/utils';
 
 type Props = {
   startOptionsEnabled?: boolean;
@@ -61,15 +61,15 @@ const Conversation: React.FC<Props> = ({
   const {
     params: { fileIds },
   } = useParamsStore();
-  const {
-    settings: { isEditAgentPanelOpen },
-  } = useSettingsStore();
+  const { addRecentAgentId } = useRecentAgents();
   const {
     files: { composerFiles },
   } = useFilesStore();
   const { defaultFileLoaderTool, enableDefaultFileLoaderTool } = useDefaultFileLoaderTool();
 
-  const { addRecentAgentId } = useAgentsStore();
+  const {
+    agents: { isEditAgentPanelOpen },
+  } = useAgentsStore();
 
   const {
     userMessage,
