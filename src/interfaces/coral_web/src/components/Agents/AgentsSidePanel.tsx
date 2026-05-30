@@ -18,6 +18,7 @@ export const AgentsSidePanel: React.FC<React.PropsWithChildren> = ({ children })
   const {
     agents: { isAgentsSidePanelOpen },
     setAgentsSidePanelOpen,
+    setEditAgentPanelOpen,
   } = useAgentsStore();
   const isDesktop = useIsDesktop();
   const isMobile = !isDesktop;
@@ -25,6 +26,7 @@ export const AgentsSidePanel: React.FC<React.PropsWithChildren> = ({ children })
   const handleToggleAgentsSidePanel = () => {
     setIsConvListPanelOpen(false);
     setSettings({ isConfigDrawerOpen: false });
+    setEditAgentPanelOpen(false);
     setAgentsSidePanelOpen(!isAgentsSidePanelOpen);
   };
 
@@ -73,7 +75,6 @@ export const AgentsSidePanel: React.FC<React.PropsWithChildren> = ({ children })
         >
           <Transition
             show={isAgentsSidePanelOpen || isMobile}
-            appear
             as="div"
             enter="transition-all transform ease-in-out duration-200"
             enterFrom="-translate-x-full"
