@@ -11,7 +11,6 @@ from backend.tools import (
     ReadFileTool,
     SearchFileTool,
     TavilyInternetSearch,
-    WebScrapeTool,
 )
 from backend.tools.google_drive import (
     GOOGLE_DRIVE_TOOL_ID,
@@ -36,17 +35,16 @@ class ToolName(StrEnum):
     Search_File = "search_file"
     Read_File = "read_document"
     Python_Interpreter = "toolkit_python_interpreter"
-    Calculator = "calculator"
+    Calculator = "toolkit_calculator"
     Tavily_Internet_Search = "web_search"
-    Web_Scrape = "web_scrape"
     Google_Drive = GOOGLE_DRIVE_TOOL_ID
 
 
 ALL_TOOLS = {
-    ToolName.Wiki_Retriever_LangChain: ManagedTool(
-        name=ToolName.Wiki_Retriever_LangChain,
-        display_name="Wikipedia",
-        implementation=LangChainWikiRetriever,
+    ToolName.Tavily_Internet_Search: ManagedTool(
+        name=ToolName.Tavily_Internet_Search,
+        display_name="Web Search",
+        implementation=TavilyInternetSearch,
         parameter_definitions={
             "query": {
                 "description": "Query for retrieval.",
@@ -54,12 +52,11 @@ ALL_TOOLS = {
                 "required": True,
             }
         },
-        kwargs={"chunk_size": 300, "chunk_overlap": 0},
         is_visible=True,
-        is_available=LangChainWikiRetriever.is_available(),
-        error_message="LangChainWikiRetriever not available.",
+        is_available=TavilyInternetSearch.is_available(),
+        error_message="TavilyInternetSearch not available, please make sure to set the TAVILY_API_KEY environment variable.",
         category=Category.DataLoader,
-        description="Retrieves documents from Wikipedia using LangChain.",
+        description="Returns a list of relevant document snippets for a textual query retrieved from the internet using Tavily.",
     ),
     ToolName.Search_File: ManagedTool(
         name=ToolName.Search_File,
@@ -117,6 +114,24 @@ ALL_TOOLS = {
         category=Category.Function,
         description="Runs python code in a sandbox.",
     ),
+    ToolName.Wiki_Retriever_LangChain: ManagedTool(
+        name=ToolName.Wiki_Retriever_LangChain,
+        display_name="Wikipedia",
+        implementation=LangChainWikiRetriever,
+        parameter_definitions={
+            "query": {
+                "description": "Query for retrieval.",
+                "type": "str",
+                "required": True,
+            }
+        },
+        kwargs={"chunk_size": 300, "chunk_overlap": 0},
+        is_visible=True,
+        is_available=LangChainWikiRetriever.is_available(),
+        error_message="LangChainWikiRetriever not available.",
+        category=Category.DataLoader,
+        description="Retrieves documents from Wikipedia using LangChain.",
+    ),
     ToolName.Calculator: ManagedTool(
         name=ToolName.Calculator,
         display_name="Calculator",
@@ -132,46 +147,7 @@ ALL_TOOLS = {
         is_available=Calculator.is_available(),
         error_message="Calculator tool not available.",
         category=Category.Function,
-        description="This is a powerful multi-purpose calculator. It is capable of a wide array of math calculation and a range of other useful features. Features include a large library of customizable functions, unit calculations and conversion, currency conversion, symbolic calculations (including integrals and equations) and interval arithmetic.",
-    ),
-    ToolName.Tavily_Internet_Search: ManagedTool(
-        name=ToolName.Tavily_Internet_Search,
-        display_name="Web Search",
-        implementation=TavilyInternetSearch,
-        parameter_definitions={
-            "query": {
-                "description": "Query for retrieval.",
-                "type": "str",
-                "required": True,
-            }
-        },
-        is_visible=True,
-        is_available=TavilyInternetSearch.is_available(),
-        error_message="TavilyInternetSearch not available, please make sure to set the TAVILY_API_KEY environment variable.",
-        category=Category.DataLoader,
-        description="Returns a list of relevant document snippets for a textual query retrieved from the internet using Tavily.",
-    ),
-    ToolName.Web_Scrape: ManagedTool(
-        name=ToolName.Web_Scrape,
-        display_name="Web Scrape",
-        implementation=WebScrapeTool,
-        parameter_definitions={
-            "url": {
-                "description": "URL to scrape.",
-                "type": "str",
-                "required": True,
-            },
-            "query": {
-                "description": "Query to search the webpage for.",
-                "type": "str",
-                "required": False,
-            },
-        },
-        is_visible=True,
-        is_available=WebScrapeTool.is_available(),
-        error_message="WebScrapeTool not available.",
-        category=Category.DataLoader,
-        description="Scrapes the content of a webpage, chunks and ranks the content by relevance to the query.",
+        description="This is a powerful multi-purpose calculator which is capable of a wide array of math calculations.",
     ),
     ToolName.Google_Drive: ManagedTool(
         name=ToolName.Google_Drive,
@@ -184,7 +160,7 @@ ALL_TOOLS = {
                 "required": True,
             }
         },
-        is_visible=False,
+        is_visible=True,
         is_available=GoogleDrive.is_available(),
         auth_implementation=GoogleDriveAuth,
         error_message="Google Drive not available",
