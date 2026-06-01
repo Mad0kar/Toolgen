@@ -1,5 +1,8 @@
+'use client';
+
 import { Transition, TransitionChild } from '@headlessui/react';
 import { useClickOutside } from '@react-hookz/web';
+import { useParams } from 'next/navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ConversationWithoutMessages as Conversation } from '@/cohere-client';
@@ -7,11 +10,11 @@ import { ConversationListHeader } from '@/components/ConversationList/Conversati
 import { ConversationListLoading } from '@/components/ConversationList/ConversationListLoading';
 import { ConversationListPanelGroup } from '@/components/ConversationList/ConversationListPanelGroup';
 import { Icon, Input, Text } from '@/components/Shared';
-import { getIsTouchDevice } from '@/hooks/breakpoint';
+import { useChatRoutes } from '@/hooks/chatRoutes';
 import { useConversations } from '@/hooks/conversation';
 import { useSearchConversations } from '@/hooks/search';
 import { useSettingsStore } from '@/stores';
-import { cn } from '@/utils';
+import { cn, getQueryString } from '@/utils';
 
 const sortByDate = (a: Conversation, b: Conversation) => {
   return Date.parse(b.updated_at ?? '') - Date.parse(a.updated_at ?? '');
@@ -19,18 +22,16 @@ const sortByDate = (a: Conversation, b: Conversation) => {
 
 type Props = {
   className?: string;
-  agentId?: string;
 };
 
-export const ConversationListPanel: React.FC<Props> = ({ className, agentId }) => {
+export const ConversationListPanel: React.FC<Props> = ({ className }) => {
   const panelRef = useRef(null);
-  const { data, isLoading: isConversationsLoading, isError } = useConversations();
-  const conversations: Conversation[] = useMemo(() => {
-    const conversations = data ?? [];
-    if (!agentId) return conversations.filter((d) => !d.agent_id);
-    return conversations.filter((d) => d.agent_id === agentId);
-  }, [data, agentId]);
-
+  const { agentId } = useChatRoutes();
+  const {
+    data: conversations,
+    isLoading: isConversationsLoading,
+    isError,
+  } = useConversations({ agentId: agentId });
   const {
     settings: { isConvListPanelOpen },
   } = useSettingsStore();
@@ -103,7 +104,7 @@ export const ConversationListPanel: React.FC<Props> = ({ className, agentId }) =
     );
   } else if (!hasConversations) {
     content = (
-      <span className="flex h-full w-full items-center justify-center text-volcanic-600">
+      <span className="flex h-full w-full items-center justify-center text-volcanic-500">
         <Text>It&apos;s quiet here... for now</Text>
       </span>
     );
@@ -165,8 +166,7 @@ export const ConversationListPanel: React.FC<Props> = ({ className, agentId }) =
       <section
         className={cn(
           'relative flex h-0 flex-grow flex-col overflow-y-auto',
-          'px-3 pb-4 pt-3 md:pb-8',
-          { 'pr-0.5': !getIsTouchDevice() }
+          'px-3 pb-4 pt-3 md:pb-8'
         )}
       >
         {content}

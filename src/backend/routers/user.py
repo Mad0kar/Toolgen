@@ -4,6 +4,13 @@ from backend.config.routers import RouterName
 from backend.crud import user as user_crud
 from backend.database_models import User as UserModel
 from backend.database_models.database import DBSessionDep
+from backend.routers.utils import (
+    add_agent_to_request_state,
+    add_event_type_to_request_state,
+    add_session_user_to_request_state,
+    add_user_to_request_state,
+)
+from backend.schemas.metrics import MetricsMessageType
 from backend.schemas.user import CreateUser, DeleteUser, UpdateUser
 from backend.schemas.user import User
 from backend.schemas.user import User as UserSchema
@@ -28,8 +35,8 @@ async def create_user(
     """
     db_user = UserModel(**user.model_dump(exclude_none=True))
     db_user = user_crud.create_user(session, db_user)
-
-    request.state.user = UserSchema.model_validate(db_user)
+    add_user_to_request_state(request, db_user)
+    add_event_type_to_request_state(request, MetricsMessageType.USER_CREATED)
     return db_user
 
 
@@ -68,13 +75,12 @@ async def get_user(user_id: str, session: DBSessionDep, request: Request) -> Use
     """
 
     user = user_crud.get_user(session, user_id)
-
     if not user:
         raise HTTPException(
             status_code=404, detail=f"User with ID: {user_id} not found."
         )
 
-    request.state.user = user
+    add_session_user_to_request_state(request, session)
     return user
 
 
@@ -97,6 +103,7 @@ async def update_user(
         HTTPException: If the user with the given ID is not found.
     """
     user = user_crud.get_user(session, user_id)
+    add_event_type_to_request_state(request, MetricsMessageType.USER_UPDATED)
 
     if not user:
         raise HTTPException(
@@ -104,8 +111,7 @@ async def update_user(
         )
 
     user = user_crud.update_user(session, user, new_user)
-    request.state.user = UserSchema.model_validate(user)
-
+    add_session_user_to_request_state(request, session)
     return user
 
 
@@ -133,7 +139,8 @@ async def delete_user(
             status_code=404, detail=f"User with ID: {user_id} not found."
         )
 
-    request.state.user = UserSchema.model_validate(user)
+    add_event_type_to_request_state(request, MetricsMessageType.USER_DELETED)
+    add_session_user_to_request_state(request, session)
     user_crud.delete_user(session, user_id)
 
     return DeleteUser()

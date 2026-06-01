@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Generator, List, Union
+from typing import Any, AsyncGenerator, Generator, List, Union
 from uuid import uuid4
 
 from cohere.types import StreamedChatResponse
@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from langchain_core.agents import AgentActionMessageLog
 from langchain_core.runnables.utils import AddableDict
+from pydantic import ValidationError
 
 from backend.chat.collate import to_dict
 from backend.chat.enums import StreamEvent
@@ -23,6 +24,10 @@ from backend.database_models.database import DBSessionDep
 from backend.database_models.document import Document
 from backend.database_models.message import Message, MessageAgent
 from backend.database_models.tool_call import ToolCall as ToolCallModel
+from backend.routers.utils import (
+    add_agent_to_request_state,
+    add_session_user_to_request_state,
+)
 from backend.schemas.agent import Agent
 from backend.schemas.chat import (
     BaseChatRequest,
@@ -44,11 +49,13 @@ from backend.schemas.chat import (
     ToolInputType,
 )
 from backend.schemas.cohere_chat import CohereChatRequest
-from backend.schemas.conversation import UpdateConversation
-from backend.schemas.file import UpdateFile
+from backend.schemas.conversation import UpdateConversationRequest
+from backend.schemas.file import UpdateFileRequest
 from backend.schemas.search_query import SearchQuery
 from backend.schemas.tool import Tool, ToolCall, ToolCallDelta
 from backend.services.auth.utils import get_header_user_id
+from backend.services.generators import AsyncGeneratorContextManager
+from backend.services.metrics import report_streaming_event
 
 
 def process_chat(
@@ -81,7 +88,17 @@ def process_chat(
 
     if agent_id is not None:
         agent = agent_crud.get_agent_by_id(session, agent_id)
-        request.state.agent = Agent.model_validate(agent)
+
+        # TODO: @Scott Validation error still needs to be fixed here
+        # ROD: error count: <built-in method error_count of pydantic_core._pydantic_core.ValidationError object at 0xffff703f08b0>
+
+        try:
+            add_agent_to_request_state(request, agent)
+        except ValidationError as exc:
+            print(f"Validation error count: {exc.error_count()}")
+            for err in exc.errors():
+                print(f"ROD: error: {repr(err)}")
+
         if agent is None:
             raise HTTPException(
                 status_code=404, detail=f"Agent with ID {agent_id} not found."
@@ -106,7 +123,7 @@ def process_chat(
         chat_request
     )
     conversation = get_or_create_conversation(
-        session, chat_request, user_id, should_store, agent_id
+        session, chat_request, user_id, should_store, agent_id, chat_request.message
     )
 
     # Get position to put next message in
@@ -208,6 +225,7 @@ def get_or_create_conversation(
     user_id: str,
     should_store: bool,
     agent_id: str | None = None,
+    user_message: str = "",
 ) -> Conversation:
     """
     Gets or creates a Conversation based on the chat request.
@@ -225,10 +243,14 @@ def get_or_create_conversation(
     conversation = conversation_crud.get_conversation(session, conversation_id, user_id)
 
     if conversation is None:
+        # Get the first 5 words of the user message as the title
+        title = " ".join(user_message.split()[:5])
+
         conversation = Conversation(
             user_id=user_id,
             id=chat_request.conversation_id,
             agent_id=agent_id,
+            title=title,
         )
 
         if should_store:
@@ -353,7 +375,9 @@ def attach_files_to_messages(
         files = file_crud.get_files_by_ids(session, file_ids, user_id)
         for file in files:
             if file.message_id is None:
-                file_crud.update_file(session, file, UpdateFile(message_id=message_id))
+                file_crud.update_file(
+                    session, file, UpdateFileRequest(message_id=message_id)
+                )
 
 
 def create_chat_history(
@@ -413,7 +437,7 @@ def update_conversation_after_turn(
 
     # Update conversation description with final message
     conversation = conversation_crud.get_conversation(session, conversation_id, user_id)
-    new_conversation = UpdateConversation(
+    new_conversation = UpdateConversationRequest(
         description=final_message_text,
         user_id=conversation.user_id,
     )
@@ -460,7 +484,8 @@ def save_tool_calls_message(
         tool_call_crud.create_tool_call(session, tool_call)
 
 
-def generate_chat_response(
+async def generate_chat_response(
+    request: Request,
     session: DBSessionDep,
     model_deployment_stream: Generator[StreamedChatResponse, None, None],
     response_message: Message,
@@ -475,6 +500,7 @@ def generate_chat_response(
     return only the final step as a non-streamed response.
 
     Args:
+        request (Request): request object.
         session (DBSessionDep): Database session.
         model_deployment_stream (Generator[StreamResponse, None, None]): Model deployment stream.
         response_message (Message): Response message object.
@@ -487,6 +513,7 @@ def generate_chat_response(
         bytes: Byte representation of chat response event.
     """
     stream = generate_chat_stream(
+        request,
         session,
         model_deployment_stream,
         response_message,
@@ -497,14 +524,17 @@ def generate_chat_response(
     )
 
     non_streamed_chat_response = None
-    for event in stream:
+    async for event in stream:
         event = json.loads(event)
         if event["event"] == StreamEvent.STREAM_END:
             data = event["data"]
+            response_id = response_message.id if response_message else None
+            generation_id = response_message.generation_id if response_message else None
+
             non_streamed_chat_response = NonStreamedChatResponse(
                 text=data.get("text", ""),
-                response_id=response_message.id,
-                generation_id=response_message.generation_id,
+                response_id=response_id,
+                generation_id=generation_id,
                 chat_history=data.get("chat_history", []),
                 finish_reason=data.get("finish_reason", ""),
                 citations=data.get("citations", []),
@@ -519,21 +549,22 @@ def generate_chat_response(
     return non_streamed_chat_response
 
 
-def generate_chat_stream(
+async def generate_chat_stream(
+    request: Request,
     session: DBSessionDep,
-    model_deployment_stream: Generator[StreamedChatResponse, None, None],
+    model_deployment_stream: AsyncGenerator[Any, Any],
     response_message: Message,
     conversation_id: str,
     user_id: str,
     should_store: bool = True,
     **kwargs: Any,
-) -> Generator[bytes, Any, None]:
+) -> AsyncGenerator[Any, Any]:
     """
     Generate chat stream from model deployment stream.
 
     Args:
         session (DBSessionDep): Database session.
-        model_deployment_stream (Generator[StreamResponse, None, None]): Model deployment stream.
+        model_deployment_stream (AsyncGenerator[Any, Any]): Model deployment stream.
         response_message (Message): Response message object.
         conversation_id (str): Conversation ID.
         user_id (str): User ID.
@@ -545,7 +576,7 @@ def generate_chat_stream(
     """
     stream_end_data = {
         "conversation_id": conversation_id,
-        "response_id": response_message.id,
+        "response_id": response_message.id if response_message else None,
         "text": "",
         "citations": [],
         "documents": [],
@@ -559,7 +590,8 @@ def generate_chat_stream(
     document_ids_to_document = {}
 
     stream_event = None
-    for event in model_deployment_stream:
+    async for event in model_deployment_stream:
+        report_streaming_event(request, event)
         (
             stream_event,
             stream_end_data,
@@ -616,7 +648,9 @@ def handle_stream_event(
     event_type = event["event_type"]
 
     if event_type not in handlers.keys():
-        logging.warning(f"Event type {event_type} not supported")
+        logging.warning(
+            f"[Chat] Error handling stream event: Event type {event_type} not supported"
+        )
         return None, stream_end_data, response_message, document_ids_to_document
 
     return handlers[event_type](
@@ -642,7 +676,8 @@ def handle_stream_start(
 ) -> tuple[StreamStart, dict[str, Any], Message, dict[str, Document]]:
     event["conversation_id"] = conversation_id
     stream_event = StreamStart.model_validate(event)
-    response_message.generation_id = event["generation_id"]
+    if response_message:
+        response_message.generation_id = event["generation_id"]
     stream_end_data["generation_id"] = event["generation_id"]
     return stream_event, stream_end_data, response_message, document_ids_to_document
 
@@ -751,8 +786,7 @@ def handle_stream_tool_calls_generation(
     stream_event = StreamToolCallsGeneration(**event | {"tool_calls": tool_calls})
     stream_end_data["tool_calls"].extend(tool_calls)
 
-    # TODO: remove False condition to enable saving tool calls
-    if should_store and False:
+    if should_store:
         save_tool_calls_message(
             session,
             tool_calls,
@@ -822,8 +856,10 @@ def handle_stream_end(
     document_ids_to_document: dict[str, Document],
     **kwargs: Any,
 ) -> tuple[StreamEnd, dict[str, Any], Message, dict[str, Document]]:
-    response_message.citations = stream_end_data["citations"]
-    response_message.text = stream_end_data["text"]
+    if response_message:
+        response_message.citations = stream_end_data["citations"]
+        response_message.text = stream_end_data["text"]
+
     stream_end_data["chat_history"] = (
         to_dict(event).get("response", {}).get("chat_history", [])
     )

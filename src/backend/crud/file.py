@@ -1,9 +1,11 @@
 from sqlalchemy.orm import Session
 
 from backend.database_models.file import File
-from backend.schemas.file import UpdateFile
+from backend.schemas.file import UpdateFileRequest
+from backend.services.transaction import validate_transaction
 
 
+@validate_transaction
 def create_file(db: Session, file: File) -> File:
     """
     Create a new file.
@@ -21,6 +23,19 @@ def create_file(db: Session, file: File) -> File:
     return file
 
 
+@validate_transaction
+def batch_create_files(db: Session, files: list[File]) -> list[File]:
+    """
+    Batch create files.
+    """
+    db.add_all(files)
+    db.commit()
+    for file in files:
+        db.refresh(file)
+    return files
+
+
+@validate_transaction
 def get_file(db: Session, file_id: str, user_id: str) -> File:
     """
     Get a file by ID.
@@ -36,6 +51,7 @@ def get_file(db: Session, file_id: str, user_id: str) -> File:
     return db.query(File).filter(File.id == file_id, File.user_id == user_id).first()
 
 
+@validate_transaction
 def get_files(db: Session, user_id: str, offset: int = 0, limit: int = 100):
     """
     List all files.
@@ -54,6 +70,7 @@ def get_files(db: Session, user_id: str, offset: int = 0, limit: int = 100):
     )
 
 
+@validate_transaction
 def get_files_by_conversation_id(
     db: Session, conversation_id: str, user_id: str
 ) -> list[File]:
@@ -75,6 +92,7 @@ def get_files_by_conversation_id(
     )
 
 
+@validate_transaction
 def get_files_by_ids(db: Session, file_ids: list[str], user_id: str) -> list[File]:
     """
     Get files by IDs.
@@ -90,6 +108,7 @@ def get_files_by_ids(db: Session, file_ids: list[str], user_id: str) -> list[Fil
     return db.query(File).filter(File.id.in_(file_ids), File.user_id == user_id).all()
 
 
+@validate_transaction
 def get_files_by_file_names(
     db: Session, file_names: list[str], user_id: str
 ) -> list[File]:
@@ -111,7 +130,23 @@ def get_files_by_file_names(
     )
 
 
-def update_file(db: Session, file: File, new_file: UpdateFile) -> File:
+@validate_transaction
+def get_files_by_user_id(db: Session, user_id: str) -> list[File]:
+    """
+    List all files by user ID.
+
+    Args:
+        db (Session): Database session.
+        user_id (str): User ID.
+
+    Returns:
+        list[File]: List of files by user ID.
+    """
+    return db.query(File).filter(File.user_id == user_id).all()
+
+
+@validate_transaction
+def update_file(db: Session, file: File, new_file: UpdateFileRequest) -> File:
     """
     Update a file by ID.
 
@@ -131,6 +166,7 @@ def update_file(db: Session, file: File, new_file: UpdateFile) -> File:
     return file
 
 
+@validate_transaction
 def delete_file(db: Session, file_id: str, user_id: str) -> None:
     """
     Delete a file by ID.

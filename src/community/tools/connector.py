@@ -15,6 +15,8 @@ More details: https://docs.cohere.com/docs/connectors
 
 
 class ConnectorRetriever(BaseTool):
+    NAME = "example_connector"
+
     def __init__(self, url: str, auth: str):
         self.url = url
         self.auth = auth
@@ -23,7 +25,7 @@ class ConnectorRetriever(BaseTool):
     def is_available(cls) -> bool:
         return True
 
-    def call(self, parameters: dict, **kwargs: Any) -> List[Dict[str, Any]]:
+    async def call(self, parameters: dict, **kwargs: Any) -> List[Dict[str, Any]]:
         body = {"query": parameters}
         headers = {
             "Content-Type": "application/json",

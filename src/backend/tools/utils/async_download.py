@@ -4,12 +4,18 @@ import logging
 
 import aiohttp
 
-TIMEOUT = aiohttp.ClientTimeout(total=15)
+TIMEOUT = aiohttp.ClientTimeout(total=120)
 logger = logging.getLogger(__name__)
 
 
-def perform(id_to_urls: dict[str, str], access_token: str) -> dict[str, str]:
+def sync_perform(id_to_urls: dict[str, str], access_token: str) -> dict[str, str]:
     return asyncio.run(_download_files(id_to_urls, access_token))
+
+
+async def async_perform(
+    id_to_urls: dict[str, str], access_token: str
+) -> dict[str, str]:
+    return await _download_files(id_to_urls, access_token)
 
 
 async def _download_files(
@@ -32,5 +38,5 @@ async def _download(
         async with session.get(url, headers=headers, timeout=TIMEOUT) as response:
             return {id: await response.text()}
     except Exception as e:
-        logger.error(f"Error fetching {url}: {e}")
+        logger.error(f"[Async Download]: Error fetching url: {url}, {e}")
         return {}

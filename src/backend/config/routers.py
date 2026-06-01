@@ -21,6 +21,8 @@ class RouterName(StrEnum):
     TOOL = "tool"
     USER = "user"
     AGENT = "agent"
+    DEFAULT_AGENT = "default_agent"
+    SNAPSHOT = "snapshot"
 
 
 # Router dependency mappings
@@ -74,8 +76,11 @@ ROUTER_DEPENDENCIES = {
         ],
     },
     RouterName.TOOL: {
-        "default": [],
+        "default": [
+            Depends(get_session),
+        ],
         "auth": [
+            Depends(get_session),
             Depends(validate_authorization),
         ],
     },
@@ -94,8 +99,26 @@ ROUTER_DEPENDENCIES = {
         ],
         "auth": [
             Depends(get_session),
-            # TODO: Add if the router's have to have authorization
-            # Depends(validate_authorization),
+            Depends(validate_authorization),
+        ],
+    },
+    RouterName.DEFAULT_AGENT: {
+        "default": [
+            Depends(get_session),
+        ],
+        "auth": [
+            Depends(get_session),
+            Depends(validate_authorization),
+        ],
+    },
+    RouterName.SNAPSHOT: {
+        "default": [
+            Depends(get_session),
+            Depends(validate_user_header),
+        ],
+        "auth": [
+            Depends(get_session),
+            Depends(validate_authorization),
         ],
     },
 }

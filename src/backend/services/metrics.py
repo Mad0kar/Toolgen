@@ -5,11 +5,13 @@ import os
 import time
 import uuid
 from functools import wraps
-from typing import Any, Callable, Dict, Union
+from typing import Any, Callable, Dict, Generator, Union
 
 from cohere.core.api_error import ApiError
+from fastapi import BackgroundTasks
 from httpx import AsyncHTTPTransport
 from httpx._client import AsyncClient
+from starlette.background import BackgroundTask
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -17,339 +19,229 @@ from starlette.responses import Response
 from backend.chat.collate import to_dict
 from backend.chat.enums import StreamEvent
 from backend.schemas.cohere_chat import CohereChatRequest
-from backend.schemas.metrics import MetricsData, MetricsSignal
+from backend.schemas.metrics import (
+    MetricsAgent,
+    MetricsChat,
+    MetricsData,
+    MetricsMessageType,
+    MetricsSignal,
+    MetricsUser,
+)
+from backend.services.auth.utils import get_header_user_id
+from backend.services.generators import AsyncGeneratorContextManager
 
 REPORT_ENDPOINT = os.getenv("REPORT_ENDPOINT", None)
 REPORT_SECRET = os.getenv("REPORT_SECRET", None)
+METRICS_LOGS_CURLS = os.getenv("METRICS_LOGS_CURLS", None)
 NUM_RETRIES = 0
 HEALTH_ENDPOINT = "health"
 HEALTH_ENDPOINT_USER_ID = "health"
 
+logger = logging.getLogger(__name__)
+
 
 class MetricsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
-        request.state.trace_id = str(uuid.uuid4())
-        request.state.agent = None
-        request.state.user = None
+
+        self.confirm_env()
+        self.init_req_state(request)
 
         start_time = time.perf_counter()
         response = await call_next(request)
         duration_ms = time.perf_counter() - start_time
+        self.send_signal(request, response, duration_ms)
 
-        data = self.get_event_data(request.scope, response, request, duration_ms)
-        run_loop(data)
         return response
 
-    def get_event_data(self, scope, response, request, duration_ms) -> MetricsData:
-        data = {}
+    def init_req_state(self, request: Request) -> None:
+        request.state.trace_id = str(uuid.uuid4())
+        request.state.agent = None
+        request.state.model = None
+        request.state.stream_start = None
+        request.state.user = None
+        request.state.event_type = None
 
-        if scope["type"] != "http":
+    def confirm_env(self):
+        if not REPORT_SECRET:
+            logger.warning("[Metrics] No report secret set")
+        if not REPORT_ENDPOINT:
+            logger.warning("[Metrics] No report endpoint set")
+
+    def send_signal(
+        self, request: Request, response: Response, duration_ms: float
+    ) -> None:
+        signal = self.get_event_signal(request, response, duration_ms)
+        should_send_event = request.state.event_type and signal
+        if should_send_event:
+            response.background = BackgroundTask(report_metrics, signal)
+
+    def get_event_signal(
+        self, request: Request, response: Response, duration_ms: float
+    ) -> MetricsSignal | None:
+
+        if request.scope["type"] != "http":
             return None
 
-        agent = self.get_agent(request)
-        agent_id = agent.get("id", None) if agent else None
-
-        user_id = self.get_user_id(request)
-        if not user_id:
+        message_type = request.state.event_type
+        if not message_type:
             return None
 
-        data = MetricsData(
-            method=self.get_method(scope),
-            endpoint_name=self.get_endpoint_name(scope, request),
-            user_id=self.get_user_id(request),
-            user=self.get_user(request),
-            success=self.get_success(response),
-            trace_id=request.state.trace_id,
-            status_code=self.get_status_code(response),
-            object_ids=self.get_object_ids(request),
-            assistant=agent,
-            assistant_id=agent_id,
-            duration_ms=duration_ms,
+        user = self.get_user(request)
+        # when user is created, user_id is not in the header
+        user_id = (
+            user.id
+            if message_type == MetricsMessageType.USER_CREATED
+            else get_header_user_id(request)
         )
+        agent = get_agent(request)
+        agent_id = agent.id if agent else None
+        event_id = str(uuid.uuid4())
+        now_unix_seconds = time.time()
 
-        return data
-
-    def get_method(self, scope: dict) -> str:
         try:
-            return scope["method"].lower()
-        except KeyError:
-            return "unknown"
+            data = MetricsData(
+                id=event_id,
+                user_id=user_id,
+                timestamp=now_unix_seconds,
+                user=user,
+                message_type=message_type,
+                trace_id=request.state.trace_id,
+                assistant=agent,
+                assistant_id=agent_id,
+                duration_ms=duration_ms,
+            )
+            data = self.attach_secret(data)
+            signal = MetricsSignal(signal=data)
+            return signal
         except Exception as e:
-            logging.warning(f"Failed to get method:  {e}")
-            return "unknown"
-
-    def get_endpoint_name(self, scope: dict, request: Request) -> str:
-        try:
-            path = scope["path"]
-            # Replace path parameters with their names
-            for key, value in request.path_params.items():
-                path = path.replace(value, f":{key}")
-
-            path = path[:-1] if path.endswith("/") else path
-            return path.lower()
-        except KeyError:
-            return "unknown"
-        except Exception as e:
-            logging.warning(f"Failed to get endpoint name: {e}")
-            return "unknown"
-
-    def get_status_code(self, response: Response) -> int:
-        try:
-            return response.status_code
-        except Exception as e:
-            logging.warning(f"Failed to get status code: {e}")
-            return 500
-
-    def get_success(self, response: Response) -> bool:
-        try:
-            return 200 <= response.status_code < 300
-        except Exception as e:
-            logging.warning(f"Failed to get success: {e}")
-            return False
-
-    def get_user_id(self, request: Request) -> Union[str, None]:
-        try:
-            user_id = request.headers.get("User-Id", None)
-
-            if not user_id:
-                user_id = (
-                    request.state.user.id
-                    if hasattr(request.state, "user") and request.state.user
-                    else None
-                )
-
-            # Health check does not have a user id - use a placeholder
-            if not user_id and HEALTH_ENDPOINT in request.url.path:
-                return HEALTH_ENDPOINT_USER_ID
-
-            return user_id
-        except Exception as e:
-            logging.warning(f"Failed to get user id: {e}")
+            logger.warning(f"[Metrics] Failed to process event data: {e}")
             return None
 
-    def get_user(self, request: Request) -> Union[Dict[str, Any], None]:
+    def get_user(self, request: Request) -> Union[MetricsUser, None]:
         if not hasattr(request.state, "user") or not request.state.user:
             return None
 
         try:
-            return {
-                "id": request.state.user.id,
-                "fullname": request.state.user.fullname,
-                "email": request.state.user.email,
-            }
+            return MetricsUser(
+                id=request.state.user.id,
+                fullname=request.state.user.fullname,
+                email=request.state.user.email,
+            )
         except Exception as e:
-            logging.warning(f"Failed to get user: {e}")
+            logger.warning(f"[Metrics] Error getting user: {e}")
             return None
 
-    def get_object_ids(self, request: Request) -> Dict[str, str]:
-        object_ids = {}
-        try:
-            for key, value in request.path_params.items():
-                object_ids[key] = value
-
-            for key, value in request.query_params.items():
-                object_ids[key] = value
-
-            return object_ids
-        except Exception as e:
-            logging.warning(f"Failed to get object ids: {e}")
-            return {}
-
-    def get_agent(self, request: Request) -> Union[Dict[str, Any], None]:
-        if not hasattr(request.state, "agent") or not request.state.agent:
-            return None
-
-        return {
-            "id": request.state.agent.id,
-            "version": request.state.agent.version,
-            "name": request.state.agent.name,
-            "temperature": request.state.agent.temperature,
-            "model": request.state.agent.model,
-            "deployment": request.state.agent.deployment,
-            "description": request.state.agent.description,
-            "preamble": request.state.agent.preamble,
-            "tools": request.state.agent.tools,
-        }
+    def attach_secret(self, data: MetricsData) -> MetricsData:
+        if not REPORT_SECRET:
+            return data
+        data.secret = REPORT_SECRET
+        return data
 
 
 async def report_metrics(signal: MetricsSignal) -> None:
+    if METRICS_LOGS_CURLS == "true":
+        log_signal_curl(signal)
     if not REPORT_SECRET:
-        logging.error("No report secret set")
         return
     if not REPORT_ENDPOINT:
-        logging.error("No report endpoint set")
         return
-    if not isinstance(signal, dict):
-        signal = to_dict(signal)
 
-    transport = AsyncHTTPTransport(retries=NUM_RETRIES)
     try:
+        signal = to_dict(signal)
+        transport = AsyncHTTPTransport(retries=NUM_RETRIES)
         async with AsyncClient(transport=transport) as client:
             await client.post(REPORT_ENDPOINT, json=signal)
     except Exception as e:
-        logging.error(f"Failed to report metrics: {e}")
+        logger.error(f"[Metrics] Error posting report: {e}")
 
 
 # TODO: remove the logging once metrics are configured correctly
-def wrap_and_log_data(data: MetricsData) -> MetricsSignal:
-    if not data:
-        return None
-
-    # TODD: seems hacky, fix this
-    data.secret = REPORT_SECRET
-    signal = MetricsSignal(signal=data)
-    logging.info(signal)
-    json_signal = json.dumps(to_dict(signal))
+def log_signal_curl(signal: MetricsSignal) -> None:
+    s = to_dict(signal)
+    s["signal"]["secret"] = "'$SECRET'"
+    json_signal = json.dumps(s)
     # just general curl commands to test the endpoint for now
-    logging.info(
+    logger.info(
         f"\n\ncurl -X POST -H \"Content-Type: application/json\" -d '{json_signal}' $ENDPOINT\n\n"
     )
-    return signal
 
 
-def run_loop(metrics_data: MetricsData) -> None:
-    signal = wrap_and_log_data(metrics_data)
-
-    # Don't report metrics if no data or endpoint is set
-    if not metrics_data or not REPORT_ENDPOINT:
-        logging.warning("No metrics data or endpoint set")
-        return
+# TODO: think about how to do rerank
+# TODO: not all errors come from the stream end event, need additional metrics handlers?
+def report_streaming_event(request: Request, event: dict[str, Any]) -> None:
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(report_metrics(signal))
-    except RuntimeError:
-        asyncio.run(report_metrics(signal))
+        event_type = event["event_type"]
+        if event_type == StreamEvent.STREAM_START:
+            request.state.stream_start = time.perf_counter()
 
+        if event_type != StreamEvent.STREAM_END:
+            return
 
-# DECORATORS
-def collect_metrics_chat(func: Callable) -> Callable:
-    @wraps(func)
-    async def wrapper(self, chat_request: CohereChatRequest, **kwargs: Any) -> Any:
-        start_time = time.perf_counter()
-        metrics_data = initialize_sdk_metrics_data("chat", chat_request, **kwargs)
-
-        response_dict = {}
-        try:
-            response = func(self, chat_request, **kwargs)
-            response_dict = to_dict(response)
-        except Exception as e:
-            metrics_data = handle_error(metrics_data, e)
-            raise e
-        finally:
-            (
-                metrics_data.input_tokens,
-                metrics_data.output_tokens,
-            ) = get_input_output_tokens(response_dict)
-            metrics_data.duration_ms = time.perf_counter() - start_time
-            run_loop(metrics_data)
-
-            return response_dict
-
-    return wrapper
-
-
-def collect_metrics_chat_stream(func: Callable) -> Callable:
-    @wraps(func)
-    def wrapper(self, chat_request: CohereChatRequest, **kwargs: Any) -> Any:
-        start_time = time.perf_counter()
-        metrics_data, kwargs = initialize_sdk_metrics_data(
-            "chat", chat_request, **kwargs
+        start_time = request.state.stream_start
+        duration_ms = (
+            None if not start_time else time.perf_counter() - request.state.stream_start
+        )
+        trace_id = request.state.trace_id
+        model = request.state.model
+        user_id = get_header_user_id(request)
+        agent = get_agent(request)
+        agent_id = agent.id if agent else None
+        event_dict = to_dict(event).get("response", {})
+        input_tokens = (
+            event_dict.get("meta", {}).get("billed_units", {}).get("input_tokens", 0)
+        )
+        output_tokens = (
+            event_dict.get("meta", {}).get("billed_units", {}).get("output_tokens", 0)
+        )
+        search_units = (
+            event_dict.get("meta", {}).get("billed_units", {}).get("search_units", 0)
+        )
+        search_units = search_units if search_units else 0
+        is_error = (
+            event_dict.get("event_type") == StreamEvent.STREAM_END
+            and event_dict.get("finish_reason") != "COMPLETE"
+            and event_dict.get("finish_reason") != "MAX_TOKENS"
         )
 
-        stream = func(self, chat_request, **kwargs)
+        message_type = (
+            MetricsMessageType.CHAT_API_FAIL
+            if is_error
+            else MetricsMessageType.CHAT_API_SUCCESS
+        )
+        # validate successful event metrics
+        if not is_error:
+            chat_metrics = MetricsChat(
+                input_nb_tokens=input_tokens,
+                output_nb_tokens=output_tokens,
+                search_units=search_units,
+                model=model,
+                assistant_id=agent_id,
+            )
 
-        try:
-            for event in stream:
-                event_dict = to_dict(event)
+        metrics = MetricsData(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            trace_id=trace_id,
+            duration_ms=duration_ms,
+            message_type=message_type,
+            timestamp=time.time(),
+            input_nb_tokens=input_tokens,
+            output_nb_tokens=output_tokens,
+            search_units=search_units,
+            model=model,
+            assistant_id=agent_id,
+            assistant=agent,
+            error=event_dict.get("finish_reason", None) if is_error else None,
+        )
+        signal = MetricsSignal(signal=metrics)
+        # do not await, fire and forget
+        asyncio.create_task(report_metrics(signal))
 
-                if is_event_end_with_error(event_dict):
-                    metrics_data.success = False
-                    metrics_data.error = event_dict.get("error")
-
-                if event_dict.get("event_type") == StreamEvent.STREAM_END:
-                    (
-                        metrics_data.input_nb_tokens,
-                        metrics_data.output_nb_tokens,
-                    ) = get_input_output_tokens(event_dict.get("response"))
-
-                yield event_dict
-        except Exception as e:
-            metrics_data = handle_error(metrics_data, e)
-            raise e
-        finally:
-            metrics_data.duration_ms = time.perf_counter() - start_time
-            run_loop(metrics_data)
-
-    return wrapper
-
-
-def collect_metrics_rerank(func: Callable) -> Callable:
-    @wraps(func)
-    def wrapper(self, query: str, documents: Dict[str, Any], **kwargs: Any) -> Any:
-        start_time = time.perf_counter()
-        metrics_data, kwargs = initialize_sdk_metrics_data("rerank", None, **kwargs)
-
-        response_dict = {}
-        try:
-            response = func(self, query, documents, **kwargs)
-            response_dict = to_dict(response)
-            metrics_data.search_units = get_search_units(response_dict)
-        except Exception as e:
-            metrics_data = handle_error(metrics_data, e)
-            raise e
-        finally:
-            metrics_data.duration_ms = time.perf_counter() - start_time
-            run_loop(metrics_data)
-            return response_dict
-
-    return wrapper
+    except Exception as e:
+        logger.error(f"[Metrics] Error preprocessing event data: {e}")
 
 
-def initialize_sdk_metrics_data(
-    func_name: str, chat_request: CohereChatRequest, **kwargs: Any
-) -> tuple[MetricsData, Any]:
-    return (
-        MetricsData(
-            endpoint_name=f"co.{func_name}",
-            method="POST",
-            trace_id=kwargs.pop("trace_id", None),
-            user_id=kwargs.pop("user_id", None),
-            assistant_id=kwargs.pop("agent_id", None),
-            model=chat_request.model if chat_request else None,
-            success=True,
-        ),
-        kwargs,
-    )
-
-
-def get_input_output_tokens(response_dict: dict) -> tuple[int, int]:
-    if response_dict is None:
-        return None, None
-
-    input_tokens = (
-        response_dict.get("meta", {}).get("billed_units", {}).get("input_tokens")
-    )
-    output_tokens = (
-        response_dict.get("meta", {}).get("billed_units", {}).get("output_tokens")
-    )
-    return input_tokens, output_tokens
-
-
-def get_search_units(response_dict: dict) -> int:
-    return response_dict.get("meta", {}).get("billed_units", {}).get("search_units")
-
-
-def is_event_end_with_error(event_dict: dict) -> bool:
-    return (
-        event_dict.get("event_type") == StreamEvent.STREAM_END
-        and event_dict.get("finish_reason") != "COMPLETE"
-        and event_dict.get("finish_reason") != "MAX_TOKENS"
-    )
-
-
-def handle_error(metrics_data: MetricsData, e: Exception) -> None:
-    metrics_data.success = False
-    metrics_data.error = str(e)
-    if isinstance(e, ApiError):
-        metrics_data.status_code = e.status_code
-    return metrics_data
+def get_agent(request: Request) -> Union[MetricsAgent, None]:
+    if not hasattr(request.state, "agent") or not request.state.agent:
+        return None
+    return request.state.agent

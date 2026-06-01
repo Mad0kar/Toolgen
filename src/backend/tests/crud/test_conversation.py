@@ -3,7 +3,7 @@ from backend.crud import conversation as conversation_crud
 from backend.crud import document as document_crud
 from backend.crud import message as message_crud
 from backend.database_models.conversation import Conversation
-from backend.schemas.conversation import UpdateConversation
+from backend.schemas.conversation import UpdateConversationRequest
 from backend.tests.factories import get_factory
 
 
@@ -20,6 +20,32 @@ def test_create_conversation(session, user):
     assert conversation.description == conversation_data.description
 
     conversation = conversation_crud.get_conversation(session, conversation.id, user.id)
+    assert conversation.user_id == conversation_data.user_id
+    assert conversation.title == conversation_data.title
+    assert conversation.description == conversation_data.description
+
+
+def test_create_conversation_same_id_different_user(session, user):
+    user2 = get_factory("User", session).create(id=f"new_{user.id}")
+    conversation_data = Conversation(
+        user_id=user.id,
+        title="Hello, World!",
+        description="This is a test",
+    )
+
+    conversation = conversation_crud.create_conversation(session, conversation_data)
+    assert conversation.user_id == conversation_data.user_id
+    assert conversation.title == conversation_data.title
+    assert conversation.description == conversation_data.description
+
+    conversation_data = Conversation(
+        id=conversation.id,
+        user_id=user2.id,
+        title="Hello, World!",
+        description="This is a test",
+    )
+
+    conversation = conversation_crud.create_conversation(session, conversation_data)
     assert conversation.user_id == conversation_data.user_id
     assert conversation.title == conversation_data.title
     assert conversation.description == conversation_data.description
@@ -103,7 +129,7 @@ def test_update_conversation(session, user):
         user_id=user.id,
     )
 
-    new_conversation_data = UpdateConversation(
+    new_conversation_data = UpdateConversationRequest(
         title="Hello, Universe!",
         description="This is a new test",
         user_id="1",

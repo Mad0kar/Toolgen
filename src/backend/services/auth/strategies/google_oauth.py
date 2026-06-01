@@ -25,13 +25,17 @@ class GoogleOAuth(BaseOAuthStrategy):
     def __init__(self):
         try:
             self.settings = GoogleOAuthSettings()
-            self.REDIRECT_URI = f"{self.settings.frontend_hostname}/auth/google"
+            self.REDIRECT_URI = (
+                f"{self.settings.frontend_hostname}/auth/{self.NAME.lower()}"
+            )
             self.client = OAuth2Session(
                 client_id=self.settings.google_client_id,
                 client_secret=self.settings.google_client_secret,
             )
         except Exception as e:
-            logging.error(f"Error during initializing of GoogleOAuth class: {str(e)}")
+            logging.error(
+                f"[Google OAuth] Error during initializing of GoogleOAuth class: {str(e)}"
+            )
             raise
 
     def get_client_id(self):
@@ -42,6 +46,11 @@ class GoogleOAuth(BaseOAuthStrategy):
             return self.AUTHORIZATION_ENDPOINT
         return None
 
+    def get_pkce_enabled(self):
+        if hasattr(self, "PKCE_ENABLED"):
+            return self.PKCE_ENABLED
+        return False
+
     async def get_endpoints(self):
         response = requests.get(self.WELL_KNOWN_ENDPOINT)
         endpoints = response.json()
@@ -51,7 +60,7 @@ class GoogleOAuth(BaseOAuthStrategy):
             self.AUTHORIZATION_ENDPOINT = endpoints["authorization_endpoint"]
         except Exception as e:
             logging.error(
-                f"Error fetching `token_endpoint` and `userinfo_endpoint` from {endpoints}."
+                f"[Google OAuth] Error fetching endpoints: `token_endpoint`, `userinfo_endpoint` or `authorization_endpoint` not found in {endpoints}."
             )
             raise
 

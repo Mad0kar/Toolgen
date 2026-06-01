@@ -33,12 +33,14 @@ class BaseOAuthStrategy:
 
     Attributes:
         NAME (str): The name of the strategy.
+        PKCE_ENABLED (bool): Whether the strategy can use PKCE.
+            Note: If your auth provider does not support PKCE it could break the auth flow.
     """
 
     NAME = None
+    PKCE_ENABLED = False
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         self._post_init_check()
 
     def _post_init_check(self):
@@ -47,7 +49,7 @@ class BaseOAuthStrategy:
                 self.NAME is None,
             ]
         ):
-            raise ValueError(f"{self.__name__} must have NAME parameter(s) defined.")
+            raise ValueError(f"{self.__name__} must have NAME attribute defined.")
 
     @abstractmethod
     def get_client_id(self, **kwargs: Any):
@@ -60,6 +62,14 @@ class BaseOAuthStrategy:
     def get_authorization_endpoint(self, **kwargs: Any):
         """
         Retrieves the OAuth app's authorization endpoint.
+        """
+        ...
+
+    @abstractmethod
+    def get_pkce_enabled(self, **kwargs: Any):
+        """
+        Retrieves whether the OAuth app supports PKCE and should be enabled
+        during authorization.
         """
         ...
 

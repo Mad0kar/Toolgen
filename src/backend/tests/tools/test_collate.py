@@ -13,7 +13,7 @@ is_cohere_env_set = (
 
 
 @pytest.mark.skipif(not is_cohere_env_set, reason="Cohere API key not set")
-def test_rerank() -> None:
+async def test_rerank() -> None:
     model = CohereDeployment(model_config={})
     outputs = [
         {
@@ -56,7 +56,7 @@ def test_rerank() -> None:
                 "parameters": {"query": "what is the highest mountain in the world?"},
                 "name": "retriever",
             },
-            "outputs": [outputs[0]],
+            "outputs": [outputs[0], outputs[1], outputs[2]],
         },
         {
             "call": {
@@ -74,7 +74,7 @@ def test_rerank() -> None:
         },
     ]
 
-    assert collate.rerank_and_chunk(tool_results, model) == expected_output
+    assert await collate.rerank_and_chunk(tool_results, model) == expected_output
 
 
 def test_chunk_normal_mode() -> None:

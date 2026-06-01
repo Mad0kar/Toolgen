@@ -1,12 +1,13 @@
+import datetime
 import json
 from typing import Any, Dict, List
 
 from backend.model_deployments.base import BaseDeployment
 
-RELEVANCE_THRESHOLD = 0.3
+RELEVANCE_THRESHOLD = 0.1
 
 
-def rerank_and_chunk(
+async def rerank_and_chunk(
     tool_results: List[Dict[str, Any]], model: BaseDeployment, **kwargs: Any
 ) -> List[Dict[str, Any]]:
     """
@@ -73,7 +74,7 @@ def rerank_and_chunk(
         if not chunked_outputs:
             continue
 
-        res = model.invoke_rerank(
+        res = await model.invoke_rerank(
             query=query,
             documents=chunked_outputs,
             trace_id=trace_id,
@@ -139,4 +140,8 @@ def chunk(content, compact_mode=False, soft_word_cut_off=100, hard_word_cut_off=
 
 
 def to_dict(obj):
-    return json.loads(json.dumps(obj, default=lambda o: o.__dict__))
+    return json.loads(
+        json.dumps(
+            obj, default=lambda o: o.__dict__ if hasattr(o, "__dict__") else str(o)
+        )
+    )

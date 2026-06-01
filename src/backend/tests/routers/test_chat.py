@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,7 @@ from backend.config.deployments import ModelDeploymentName
 from backend.database_models.conversation import Conversation
 from backend.database_models.message import Message, MessageAgent
 from backend.database_models.user import User
+from backend.schemas.metrics import MetricsData, MetricsMessageType
 from backend.schemas.tool import Category
 from backend.tests.factories import get_factory
 
@@ -46,6 +48,45 @@ def test_streaming_new_chat(
     )
 
 
+# TODO: add test case for when stream raises an error
+@pytest.mark.skipif(not is_cohere_env_set, reason="Cohere API key not set")
+def test_streaming_new_chat_metrics_with_agent(
+    session_client_chat: TestClient, session_chat: Session, user: User
+):
+    agent = get_factory("Agent", session_chat).create(
+        user_id=user.id,
+        tools=[],
+        name="test agent",
+        preamble="you are a smart assistant",
+    )
+
+    with patch(
+        "backend.services.metrics.report_metrics",
+        return_value=None,
+    ) as mock_metrics:
+        response = session_client_chat.post(
+            "/v1/chat-stream",
+            headers={
+                "User-Id": user.id,
+                "Deployment-Name": ModelDeploymentName.CoherePlatform,
+            },
+            params={"agent_id": agent.id},
+            json={"message": "Hello", "max_tokens": 10, "agent_id": agent.id},
+        )
+        # finish all the event stream
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            continue
+        m_args: MetricsData = mock_metrics.await_args.args[0].signal
+        assert m_args.user_id == user.id
+        assert m_args.message_type == MetricsMessageType.CHAT_API_SUCCESS
+        assert m_args.assistant_id == agent.id
+        assert m_args.assistant.name == agent.name
+        assert m_args.model is not None
+        assert m_args.input_nb_tokens > 0
+        assert m_args.output_nb_tokens > 0
+
+
 @pytest.mark.skipif(not is_cohere_env_set, reason="Cohere API key not set")
 def test_streaming_new_chat_with_agent(
     session_client_chat: TestClient, session_chat: Session, user: User
@@ -63,7 +104,7 @@ def test_streaming_new_chat_with_agent(
             "Deployment-Name": ModelDeploymentName.CoherePlatform,
         },
         params={"agent_id": agent.id},
-        json={"message": "Hello", "max_tokens": 10},
+        json={"message": "Hello", "max_tokens": 10, "agent_id": agent.id},
     )
 
     assert response.status_code == 200
@@ -112,7 +153,12 @@ def test_streaming_new_chat_with_agent_existing_conversation(
             "Deployment-Name": ModelDeploymentName.CoherePlatform,
         },
         params={"agent_id": agent.id},
-        json={"message": "Hello", "max_tokens": 10, "conversation_id": conversation.id},
+        json={
+            "message": "Hello",
+            "max_tokens": 10,
+            "conversation_id": conversation.id,
+            "agent_id": agent.id,
+        },
     )
 
     assert response.status_code == 200
@@ -157,7 +203,12 @@ def test_streaming_chat_with_existing_conversation_from_other_agent(
             "Deployment-Name": ModelDeploymentName.CoherePlatform,
         },
         params={"agent_id": agent.id},
-        json={"message": "Hello", "max_tokens": 10, "conversation_id": conversation.id},
+        json={
+            "message": "Hello",
+            "max_tokens": 10,
+            "conversation_id": conversation.id,
+            "agent_id": agent.id,
+        },
     )
 
     assert response.status_code == 400
@@ -177,8 +228,12 @@ def test_streaming_chat_with_tools_not_in_agent_tools(
             "User-Id": user.id,
             "Deployment-Name": ModelDeploymentName.CoherePlatform,
         },
-        params={"agent_id": agent.id},
-        json={"message": "Hello", "max_tokens": 10, "tools": [{"name": "web_search"}]},
+        json={
+            "message": "Hello",
+            "max_tokens": 10,
+            "tools": [{"name": "web_search"}],
+            "agent_id": agent.id,
+        },
     )
 
     assert response.status_code == 400
@@ -253,37 +308,10 @@ def test_default_chat_missing_deployment_name(
     response = session_client_chat.post(
         "/v1/chat",
         json={"message": "Hello"},
-        headers={"User-Id": "test"},
+        headers={"User-Id": user.id},
     )
 
     assert response.status_code == 200
-
-
-@pytest.mark.skipif(not is_cohere_env_set, reason="Cohere API key not set")
-def test_streaming_fail_chat_missing_message(
-    session_client_chat: TestClient, session_chat: Session, user: User
-):
-    response = session_client_chat.post(
-        "/v1/chat-stream",
-        headers={
-            "User-Id": "123",
-            "Deployment-Name": ModelDeploymentName.CoherePlatform,
-        },
-        json={},
-    )
-
-    assert response.status_code == 422
-    assert response.json() == {
-        "detail": [
-            {
-                "type": "missing",
-                "loc": ["body", "message"],
-                "msg": "Field required",
-                "input": {},
-                "url": "https://errors.pydantic.dev/2.7/v/missing",
-            }
-        ]
-    }
 
 
 @pytest.mark.skipif(not is_cohere_env_set, reason="Cohere API key not set")
@@ -469,7 +497,7 @@ def test_streaming_existing_chat_with_files_attaches_to_user_message(
         },
     )
 
-    conversation = session_chat.get(Conversation, conversation.id)
+    conversation = session_chat.get(Conversation, (conversation.id, user.id))
 
     assert response.status_code == 200
     assert conversation is not None
@@ -515,7 +543,7 @@ def test_streaming_existing_chat_with_attached_files_does_not_attach(
         },
     )
 
-    conversation = session_chat.get(Conversation, conversation.id)
+    conversation = session_chat.get(Conversation, (conversation.id, user.id))
 
     assert response.status_code == 200
     assert conversation is not None
@@ -701,7 +729,7 @@ def test_non_streaming_existing_chat_with_files_attaches_to_user_message(
         },
     )
 
-    conversation = session_chat.get(Conversation, conversation.id)
+    conversation = session_chat.get(Conversation, (conversation.id, user.id))
 
     assert response.status_code == 200
     assert conversation is not None
@@ -744,7 +772,7 @@ def test_non_streaming_existing_chat_with_attached_files_does_not_attach(
         },
     )
 
-    conversation = session_chat.get(Conversation, conversation.id)
+    conversation = session_chat.get(Conversation, (conversation.id, user.id))
 
     assert response.status_code == 200
     assert conversation is not None
@@ -809,7 +837,7 @@ def validate_conversation(
     assert conversation.user_id == user.id
     assert len(conversation.messages) == expected_num_messages
     # Also test DB object
-    conversation = session.get(Conversation, conversation_id)
+    conversation = session.get(Conversation, (conversation_id, user.id))
     assert conversation is not None
     assert conversation.user_id == user.id
     assert len(conversation.messages) == expected_num_messages

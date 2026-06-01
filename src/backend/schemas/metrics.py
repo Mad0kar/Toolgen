@@ -1,34 +1,85 @@
 import time
 import uuid
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
 
 
+class GenericResponseMessage(BaseModel):
+    message: str
+
+
+class MetricsMessageType(str, Enum):
+    # users: implemented, has tests
+    USER_CREATED = "user_created"
+    USER_UPDATED = "user_updated"
+    USER_DELETED = "user_deleted"
+    # agents: implemented, has tests
+    ASSISTANT_CREATED = "assistant_created"
+    ASSISTANT_UPDATED = "assistant_updated"
+    ASSISTANT_DELETED = "assistant_deleted"
+    ASSISTANT_ACCESSED = "assistant_accessed"
+    # implemented, has tests
+    CHAT_API_SUCCESS = "chat_api_call_success"
+    # implemented, needs tests
+    CHAT_API_FAIL = "chat_api_call_failure"
+    # pending implementation
+    RERANK_API_SUCCESS = "rerank_api_call_success"
+    RERANK_API_FAIL = "rerank_api_call_failure"
+    ENV_LIVENESS = "env_liveness"
+    COMPASS_NEW_INDEX = "compass_new_index"
+    COMPASS_REMOVE_INDEX = "compass_remove_index"
+    COMPASS_NEW_USER = "compass_new_user"
+    COMPASS_REMOVE_USER = "compass_remove_user"
+    UNKNOWN_SIGNAL = "unknown"
+
+
 class MetricsDataBase(BaseModel):
-    id: str = str(uuid.uuid4())
+    id: str
+    user_id: str
     trace_id: str
-    method: str
-    endpoint_name: str
-    success: bool
-    timestamp: float = time.time()
+    message_type: MetricsMessageType
+    timestamp: float
     secret: str = ""
 
 
+class MetricsUser(BaseModel):
+    id: str
+    fullname: str
+    email: str | None
+
+
+class MetricsAgent(BaseModel):
+    id: str
+    version: int
+    name: str
+    temperature: float
+    model: str
+    deployment: str | None
+    preamble: str | None
+    description: str | None
+
+
+class MetricsChat(BaseModel):
+    input_nb_tokens: int
+    output_nb_tokens: int
+    search_units: int
+    model: str
+    assistant_id: str
+
+
 class MetricsData(MetricsDataBase):
-    status_code: int | None = None
     input_nb_tokens: int | None = None
     output_nb_tokens: int | None = None
     search_units: int | None = None
     model: str | None = None
     error: str | None = None
-    object_ids: dict[str, str] | None = None
     duration_ms: float | None = None
     meta: dict[str, Any] | None = None
     assistant_id: str | None = None
-    assistant: dict[str, Any] | None = None
-    user_id: str
-    user: dict[str, Any] | None = None
+    assistant: MetricsAgent | None = None
+    user: MetricsUser | None = None
 
 
 class MetricsSignal(BaseModel):

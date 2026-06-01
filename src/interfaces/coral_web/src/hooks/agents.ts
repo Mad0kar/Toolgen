@@ -3,21 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isNil } from 'lodash';
 import { useMemo } from 'react';
 
-import { Agent, CreateAgent, useCohereClient } from '@/cohere-client';
+import { Agent, ApiError, CreateAgent, UpdateAgent, useCohereClient } from '@/cohere-client';
 import { LOCAL_STORAGE_KEYS } from '@/constants';
 
 export const useListAgents = () => {
   const cohereClient = useCohereClient();
   return useQuery({
     queryKey: ['listAgents'],
-    queryFn: async () => {
-      try {
-        return await cohereClient.listAgents();
-      } catch (e) {
-        console.error(e);
-        throw e;
-      }
-    },
+    queryFn: () => cohereClient.listAgents({}),
   });
 };
 
@@ -25,9 +18,20 @@ export const useCreateAgent = () => {
   const cohereClient = useCohereClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (request: CreateAgent) => {
+    mutationFn: (request: CreateAgent) => cohereClient.createAgent(request),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['listAgents'] });
+    },
+  });
+};
+
+export const useDeleteAgent = () => {
+  const cohereClient = useCohereClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: { agentId: string }) => {
       try {
-        return await cohereClient.createAgent(request);
+        return await cohereClient.deleteAgent(request);
       } catch (e) {
         console.error(e);
         throw e;
@@ -46,11 +50,23 @@ export const useAgent = ({ agentId }: { agentId?: string }) => {
     enabled: !!agentId,
     queryFn: async () => {
       try {
-        return await cohereClient.getAgent(agentId ?? '');
+        if (!agentId) throw new Error('Agent ID not found');
+        return await cohereClient.getAgent(agentId);
       } catch (e) {
         console.error(e);
         throw e;
       }
+    },
+  });
+};
+
+export const useDefaultAgent = (enabled?: boolean) => {
+  const cohereClient = useCohereClient();
+  return useQuery({
+    queryKey: ['defaultAgent'],
+    enabled: enabled,
+    queryFn: async () => {
+      return await cohereClient.getDefaultAgent();
     },
   });
 };
@@ -67,15 +83,8 @@ export const useIsAgentNameUnique = () => {
 export const useUpdateAgent = () => {
   const cohereClient = useCohereClient();
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (request: CreateAgent & { agentId: string }) => {
-      try {
-        return await cohereClient.updateAgent(request);
-      } catch (e) {
-        console.error(e);
-        throw e;
-      }
-    },
+  return useMutation<Agent, ApiError, { request: UpdateAgent; agentId: string }>({
+    mutationFn: ({ request, agentId }) => cohereClient.updateAgent(request, agentId),
     onSettled: (agent) => {
       queryClient.invalidateQueries({ queryKey: ['agent', agent?.id] });
       queryClient.invalidateQueries({ queryKey: ['listAgents'] });

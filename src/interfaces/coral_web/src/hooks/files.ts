@@ -2,14 +2,25 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { uniqBy } from 'lodash';
 import { useMemo } from 'react';
 
-import { File as CohereFile, ListFile, useCohereClient } from '@/cohere-client';
-import { ACCEPTED_FILE_TYPES } from '@/constants';
+import {
+  ApiError,
+  File as CohereFile,
+  DeleteFile,
+  ListFile,
+  useCohereClient,
+} from '@/cohere-client';
+import { ACCEPTED_FILE_TYPES, MAX_NUM_FILES_PER_UPLOAD_BATCH } from '@/constants';
 import { useNotify } from '@/hooks/toast';
 import { useListTools } from '@/hooks/tools';
 import { useConversationStore, useFilesStore, useParamsStore } from '@/stores';
 import { UploadingFile } from '@/stores/slices/filesSlice';
 import { MessageType } from '@/types/message';
-import { getFileExtension, isDefaultFileLoaderTool } from '@/utils';
+import {
+  fileSizeToBytes,
+  formatFileSize,
+  getFileExtension,
+  isDefaultFileLoaderTool,
+} from '@/utils';
 
 class FileUploadError extends Error {
   constructor(message: string) {
@@ -19,7 +30,7 @@ class FileUploadError extends Error {
 
 export const useListFiles = (conversationId?: string, options?: { enabled?: boolean }) => {
   const cohereClient = useCohereClient();
-  return useQuery<ListFile[], Error>({
+  return useQuery<ListFile[], ApiError>({
     queryKey: ['listFiles', conversationId],
     queryFn: async () => {
       if (!conversationId) throw new Error('Conversation ID not found');
@@ -56,14 +67,17 @@ export const useUploadFile = () => {
   const cohereClient = useCohereClient();
 
   return useMutation({
-    mutationFn: async ({ file, conversationId }: { file: File; conversationId?: string }) => {
-      try {
-        return await cohereClient.uploadFile({ file, conversationId });
-      } catch (e) {
-        console.error(e);
-        throw e;
-      }
-    },
+    mutationFn: ({ file, conversationId }: { file: File; conversationId?: string }) =>
+      cohereClient.uploadFile({ file, conversation_id: conversationId }),
+  });
+};
+
+export const useBatchUploadFile = () => {
+  const cohereClient = useCohereClient();
+
+  return useMutation({
+    mutationFn: ({ files, conversationId }: { files: File[]; conversationId?: string }) =>
+      cohereClient.batchUploadFile({ files, conversation_id: conversationId }),
   });
 };
 
@@ -71,15 +85,9 @@ export const useDeleteUploadedFile = () => {
   const cohereClient = useCohereClient();
   const queryClient = useQueryClient();
 
-  return useMutation<void, void, { conversationId: string; fileId: string }>({
-    mutationFn: async ({ conversationId, fileId }: { conversationId: string; fileId: string }) => {
-      try {
-        await cohereClient.deletefile({ conversationId, fileId });
-      } catch (e) {
-        console.error(e);
-        throw e;
-      }
-    },
+  return useMutation<DeleteFile, ApiError, { conversationId: string; fileId: string }>({
+    mutationFn: async ({ conversationId, fileId }) =>
+      cohereClient.deletefile({ conversationId, fileId }),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['listFiles'] });
     },
@@ -89,7 +97,7 @@ export const useDeleteUploadedFile = () => {
 export const useFileActions = () => {
   const {
     files: { uploadingFiles, composerFiles },
-    addUploadingFile,
+    addUploadingFiles,
     addComposerFile,
     deleteUploadingFile,
     deleteComposerFile,
@@ -100,53 +108,86 @@ export const useFileActions = () => {
     params: { fileIds },
     setParams,
   } = useParamsStore();
-  const { mutateAsync: uploadFile } = useUploadFile();
+  const { mutateAsync: uploadFiles } = useBatchUploadFile();
   const { mutateAsync: deleteFile } = useDeleteUploadedFile();
   const { error } = useNotify();
-  const { setConversation } = useConversationStore();
+  const { setConversation, conversation } = useConversationStore();
 
-  const handleUploadFile = async (file?: File, conversationId?: string) => {
-    if (!file) return;
+  const handleUploadFiles = async (files?: File[], conversationId?: string) => {
+    // cleanup uploadingFiles with errors
+    const uploadingFilesWithErrors = uploadingFiles.filter((file) => file.error);
+    uploadingFilesWithErrors.forEach((file) => deleteUploadingFile(file.id));
 
-    const uploadingFileId = new Date().valueOf().toString();
-    const newUploadingFile: UploadingFile = {
-      id: uploadingFileId,
-      file,
-      error: '',
-      progress: 0,
-    };
-
-    const fileExtension = getFileExtension(file.name);
-    const isAcceptedExtension = ACCEPTED_FILE_TYPES.some(
-      (acceptedFile) => file.type === acceptedFile
-    );
-    if (!isAcceptedExtension) {
-      newUploadingFile.error = `File type not supported (${fileExtension?.toUpperCase()})`;
-      addUploadingFile(newUploadingFile);
+    if (!files?.length) return;
+    if (files.length > MAX_NUM_FILES_PER_UPLOAD_BATCH) {
+      addUploadingFiles([
+        {
+          id: 'error',
+          error: `You can upload a maximum of ${MAX_NUM_FILES_PER_UPLOAD_BATCH} files at a time.`,
+          file: new File([], ''),
+          progress: 0,
+        },
+      ]);
       return;
     }
 
-    addUploadingFile(newUploadingFile);
+    const MAX_FILE_SIZE = fileSizeToBytes(20);
 
-    try {
-      const uploadedFile = await uploadFile({ file: newUploadingFile.file, conversationId });
-
-      if (!uploadedFile?.id) {
-        throw new FileUploadError('File ID not found');
+    const newUploadingFiles: UploadingFile[] = [];
+    files.forEach((file) => {
+      const uploadingFileId = new Date().valueOf().toString();
+      const newUploadingFile: UploadingFile = {
+        id: uploadingFileId,
+        file,
+        error: '',
+        progress: 0,
+      };
+      const fileExtension = getFileExtension(file.name);
+      const isAcceptedExtension = ACCEPTED_FILE_TYPES.some(
+        (acceptedFile) => file.type === acceptedFile
+      );
+      const isFileSizeValid = file.size <= MAX_FILE_SIZE;
+      if (!isAcceptedExtension) {
+        newUploadingFile.error = `File type not supported (${fileExtension?.toUpperCase()})`;
+      } else if (!isFileSizeValid) {
+        newUploadingFile.error = `File size cannot exceed ${formatFileSize(MAX_FILE_SIZE)}`;
       }
 
-      deleteUploadingFile(uploadingFileId);
-      const uploadedFileId = uploadedFile.id;
-      const newFileIds = [...(fileIds ?? []), uploadedFileId];
-      setParams({ fileIds: newFileIds });
-      addComposerFile(uploadedFile);
+      newUploadingFiles.push(newUploadingFile);
+    });
+
+    const firstInvalidFile = newUploadingFiles.find((file) => file.error);
+    if (!!firstInvalidFile) {
+      // If error exists, update all files with the same error so that none
+      // are shown as uploading in the composer and then exist the function.
+      // This is because batch file upload will currently fail if any one file is invalid.
+      const invalidFiles = newUploadingFiles.map((file) =>
+        !file.error ? { ...file, error: firstInvalidFile.error } : file
+      );
+      addUploadingFiles(invalidFiles);
+      return;
+    }
+    addUploadingFiles(newUploadingFiles);
+
+    try {
+      const uploadedFiles = await uploadFiles({ files, conversationId });
+
+      newUploadingFiles.forEach((file) => deleteUploadingFile(file.id));
+
+      const newFileIds: string[] = fileIds ?? [];
+      uploadedFiles.forEach((uploadedFile) => {
+        newFileIds.push(uploadedFile.id);
+        setParams({ fileIds: newFileIds });
+        addComposerFile(uploadedFile);
+      });
+
       if (!conversationId) {
-        setConversation({ id: uploadedFile.conversation_id });
+        setConversation({ id: uploadedFiles[0].conversation_id });
       }
 
       return newFileIds;
     } catch (e: any) {
-      updateUploadingFileError(newUploadingFile, e.message);
+      uploadingFiles.forEach((file) => updateUploadingFileError(file, e.message));
     }
   };
 
@@ -167,7 +208,7 @@ export const useFileActions = () => {
   return {
     uploadingFiles,
     composerFiles,
-    uploadFile: handleUploadFile,
+    uploadFiles: handleUploadFiles,
     deleteFile: deleteUploadedFile,
     deleteUploadingFile,
     deleteComposerFile,
