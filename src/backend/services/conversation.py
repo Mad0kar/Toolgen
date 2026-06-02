@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from backend.chat.custom.custom import CustomChat
 from backend.crud import conversation as conversation_crud
@@ -121,6 +121,7 @@ async def filter_conversations(
     user_id: str,
     agent_id: str,
     trace_id: str,
+    request: Request,
 ) -> List[Conversation]:
     """Filter conversations based on the rerank score
 
@@ -153,6 +154,7 @@ async def filter_conversations(
         user_id=user_id,
         agent_id=agent_id,
         trace_id=trace_id,
+        request=request,
     )
 
     # Sort conversations by rerank score
@@ -169,7 +171,6 @@ async def filter_conversations(
 
 
 async def generate_conversation_title(
-    request,
     session,
     conversation,
     deployment_name,
@@ -202,7 +203,6 @@ async def generate_conversation_title(
         )
 
         response = await generate_chat_response(
-            request,
             session,
             CustomChat().chat(
                 chat_request,
@@ -222,8 +222,6 @@ async def generate_conversation_title(
         title = response.text
     except Exception as e:
         title = DEFAULT_TITLE
-        logging.error(
-            f"[Conversation] Error generating title: Conversation ID {conversation.id}, {e}"
-        )
+        logging.error(f"Error generating title for conversation {conversation.id}: {e}")
 
     return title

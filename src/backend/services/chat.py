@@ -55,7 +55,6 @@ from backend.schemas.search_query import SearchQuery
 from backend.schemas.tool import Tool, ToolCall, ToolCallDelta
 from backend.services.auth.utils import get_header_user_id
 from backend.services.generators import AsyncGeneratorContextManager
-from backend.services.metrics import report_streaming_event
 
 
 def process_chat(
@@ -485,7 +484,6 @@ def save_tool_calls_message(
 
 
 async def generate_chat_response(
-    request: Request,
     session: DBSessionDep,
     model_deployment_stream: Generator[StreamedChatResponse, None, None],
     response_message: Message,
@@ -513,7 +511,6 @@ async def generate_chat_response(
         bytes: Byte representation of chat response event.
     """
     stream = generate_chat_stream(
-        request,
         session,
         model_deployment_stream,
         response_message,
@@ -550,7 +547,6 @@ async def generate_chat_response(
 
 
 async def generate_chat_stream(
-    request: Request,
     session: DBSessionDep,
     model_deployment_stream: AsyncGenerator[Any, Any],
     response_message: Message,
@@ -591,7 +587,6 @@ async def generate_chat_stream(
 
     stream_event = None
     async for event in model_deployment_stream:
-        report_streaming_event(request, event)
         (
             stream_event,
             stream_end_data,
@@ -648,9 +643,7 @@ def handle_stream_event(
     event_type = event["event_type"]
 
     if event_type not in handlers.keys():
-        logging.warning(
-            f"[Chat] Error handling stream event: Event type {event_type} not supported"
-        )
+        logging.warning(f"Event type {event_type} not supported")
         return None, stream_end_data, response_message, document_ids_to_document
 
     return handlers[event_type](
