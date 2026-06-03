@@ -1,15 +1,13 @@
-import os
 from typing import Any, AsyncGenerator, Dict, List
 
 import cohere
-from cohere.types import StreamedChatResponse
 
 from backend.chat.collate import to_dict
 from backend.config.settings import Settings
 from backend.model_deployments.base import BaseDeployment
 from backend.model_deployments.utils import get_model_config_var
 from backend.schemas.cohere_chat import CohereChatRequest
-from backend.services.metrics import collect_metrics_chat_stream, collect_metrics_rerank
+from backend.schemas.context import Context
 
 DEFAULT_RERANK_MODEL = "rerank-english-v2.0"
 SC_URL_ENV_VAR = "SINGLE_CONTAINER_URL"
@@ -21,7 +19,7 @@ class SingleContainerDeployment(BaseDeployment):
     """Single Container Deployment."""
 
     client_name = "cohere-toolkit"
-    config = Settings().deployments.single_container
+    config = Settings().get('deployments.single_container')
     default_url = config.url
     default_model = config.model
 
@@ -62,9 +60,8 @@ class SingleContainerDeployment(BaseDeployment):
         )
         yield to_dict(response)
 
-    @collect_metrics_chat_stream
     async def invoke_chat_stream(
-        self, chat_request: CohereChatRequest
+        self, chat_request: CohereChatRequest, ctx: Context, **kwargs: Any
     ) -> AsyncGenerator[Any, Any]:
         stream = self.client.chat_stream(
             **chat_request.model_dump(
@@ -75,8 +72,9 @@ class SingleContainerDeployment(BaseDeployment):
         for event in stream:
             yield to_dict(event)
 
-    @collect_metrics_rerank
-    async def invoke_rerank(self, query: str, documents: List[Dict[str, Any]]) -> Any:
+    async def invoke_rerank(
+        self, query: str, documents: List[Dict[str, Any]], ctx: Context
+    ) -> Any:
         return self.client.rerank(
             query=query, documents=documents, model=DEFAULT_RERANK_MODEL
         )

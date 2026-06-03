@@ -1,5 +1,3 @@
-import logging
-
 import requests
 from authlib.integrations.requests_client import OAuth2Session
 from fastapi import HTTPException
@@ -7,6 +5,9 @@ from starlette.requests import Request
 
 from backend.config.settings import Settings
 from backend.services.auth.strategies.base import BaseOAuthStrategy
+from backend.services.logger.utils import LoggerFactory
+
+logger = LoggerFactory().get_logger()
 
 
 class OpenIDConnect(BaseOAuthStrategy):
@@ -19,9 +20,9 @@ class OpenIDConnect(BaseOAuthStrategy):
 
     def __init__(self):
         try:
-            self.settings = Settings().auth.oidc
+            self.settings = Settings().get('auth.oidc')
             self.REDIRECT_URI = (
-                f"{Settings().auth.frontend_hostname}/auth/{self.NAME.lower()}"
+                f"{Settings().get('auth.frontend_hostname')}/auth/{self.NAME.lower()}"
             )
             self.WELL_KNOWN_ENDPOINT = self.settings.well_known_endpoint
             self.client = OAuth2Session(
@@ -29,7 +30,9 @@ class OpenIDConnect(BaseOAuthStrategy):
                 client_secret=self.settings.client_secret,
             )
         except Exception as e:
-            logging.error(f"Error during initializing of OpenIDConnect class: {str(e)}")
+            logger.error(
+                event=f"[OpenIDConnect] Error initializing OpenIDConnect: {str(e)}"
+            )
             raise
 
     def get_client_id(self):
@@ -52,9 +55,9 @@ class OpenIDConnect(BaseOAuthStrategy):
             self.TOKEN_ENDPOINT = endpoints["token_endpoint"]
             self.USERINFO_ENDPOINT = endpoints["userinfo_endpoint"]
             self.AUTHORIZATION_ENDPOINT = endpoints["authorization_endpoint"]
-        except Exception as e:
-            logging.error(
-                f"Error fetching `token_endpoint` and `userinfo_endpoint` from {endpoints}."
+        except Exception:
+            logger.error(
+                event=f"Error fetching `token_endpoint` and `userinfo_endpoint` from {endpoints}."
             )
             raise
 
@@ -86,7 +89,7 @@ class OpenIDConnect(BaseOAuthStrategy):
 
             params["code_verifier"] = code_verifier
 
-        token = self.client.fetch_token(**params)
+        _ = self.client.fetch_token(**params)
 
         user_info = self.client.get(self.USERINFO_ENDPOINT)
 

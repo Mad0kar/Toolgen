@@ -5,13 +5,9 @@ import { useMemo, useState } from 'react';
 import { SubmitHandler, useForm } from 'react-hook-form';
 
 import { CohereUnauthorizedError, ListAuthStrategy } from '@/cohere-client';
-import { AuthLink } from '@/components/AuthLink';
-import { Button, Input, Text } from '@/components/Shared';
-import { OidcSSOButton } from '@/components/Welcome/OidcSSOButton';
-import { useAuthConfig } from '@/hooks/authConfig';
-import { useOidcAuthRoute } from '@/hooks/oidcAuthRoute';
-import { useSession } from '@/hooks/session';
-import { useNotify } from '@/hooks/toast';
+import { AuthLink, OidcSSOButton } from '@/components/Auth';
+import { Button, Input, Text } from '@/components/UI';
+import { useAuthConfig, useNotify, useOidcAuthRoute, useSession } from '@/hooks';
 import type { NoNullProperties } from '@/types/util';
 import { getQueryString, simpleEmailValidation } from '@/utils';
 
@@ -85,14 +81,7 @@ const Login: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center">
-      <Text
-        as="h1"
-        styleAs="h3"
-        onClick={() => {
-          console.warn('Clicked title');
-          errors.push('Clicked title');
-        }}
-      >
+      <Text as="h1" styleAs="h3">
         Log in
       </Text>
       <div className="mt-10 flex w-full flex-col items-center gap-1">
@@ -117,7 +106,7 @@ const Login: React.FC = () => {
           <form
             onSubmit={handleSubmit(onSubmit)}
             onChange={() => setErrors([])}
-            className="mt-10 flex w-full flex-col"
+            className="mt-10 flex w-full flex-col gap-4"
           >
             <Input
               className="w-full"
@@ -155,21 +144,23 @@ const Login: React.FC = () => {
             <Button
               disabled={loginStatus === 'pending' || !formState.isValid}
               label={loginStatus === 'pending' ? 'Logging in...' : 'Log in'}
-              type="submit"
+              buttonType="submit"
+              kind="cell"
+              theme="evolved-green"
+              iconPosition="end"
               className="mt-10 w-full self-center md:w-fit"
-              splitIcon="arrow-right"
             />
           </form>
 
           <Text
             as="div"
-            className="mt-10 flex w-full items-center justify-between text-volcanic-700"
+            className="mt-10 flex w-full items-center justify-center gap-2 text-volcanic-700"
           >
             New user?
             <AuthLink
               redirect={redirect !== '/' ? redirect : undefined}
               action="register"
-              className="text-green-700 no-underline"
+              theme="evolved-green"
             />
           </Text>
         </>

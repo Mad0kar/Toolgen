@@ -1,20 +1,14 @@
 import json
-import os
 from typing import Any, Dict, Mapping
 
 import requests
 from dotenv import load_dotenv
-from langchain_core.tools import Tool as LangchainTool
-from pydantic.v1 import BaseModel, Field
 
 from backend.config.settings import Settings
+from backend.schemas.tool import ToolCategory, ToolDefinition
 from backend.tools.base import BaseTool
 
 load_dotenv()
-
-
-class LangchainPythonInterpreterToolInput(BaseModel):
-    code: str = Field(description="Python code to execute.")
 
 
 class PythonInterpreter(BaseTool):
@@ -23,21 +17,49 @@ class PythonInterpreter(BaseTool):
     It requires a URL at which the interpreter lives
     """
 
-    NAME = "toolkit_python_interpreter"
-    INTERPRETER_URL = Settings().tools.python_interpreter.url
+    ID = "toolkit_python_interpreter"
+    INTERPRETER_URL = Settings().get('tools.python_interpreter.url')
 
     @classmethod
     def is_available(cls) -> bool:
         return cls.INTERPRETER_URL is not None
 
-    async def call(self, parameters: dict, **kwargs: Any):
+    @classmethod
+    def get_tool_definition(cls) -> ToolDefinition:
+        return ToolDefinition(
+            name=cls.ID,
+            display_name="Python Interpreter",
+            implementation=cls,
+            parameter_definitions={
+                "code": {
+                    "description": (
+                        "Python code to execute using the Python interpreter with no internet access. "
+                        "Do not generate code that tries to open files directly, instead use file contents passed to the interpreter, "
+                        "then print output or save output to a file."
+                    ),
+                    "type": "str",
+                    "required": True,
+                }
+            },
+            is_visible=True,
+            is_available=cls.is_available(),
+            error_message=cls.generate_error_message(),
+            category=ToolCategory.Function,
+            description=(
+                "Executes python code and returns the result. The code runs "
+                "in a static sandbox without internet access and without interactive mode, "
+                "so print output or save output to a file."
+            ),
+        )
+
+    async def call(self, parameters: dict, ctx: Any, **kwargs: Any):
         if not self.INTERPRETER_URL:
             raise Exception("Python Interpreter tool called while URL not set")
 
         code = parameters.get("code", "")
         res = requests.post(self.INTERPRETER_URL, json={"code": code})
-        clean_res = self._clean_response(res.json())
 
+        clean_res = self._clean_response(res.json())
         return clean_res
 
     def _clean_response(self, result: Any) -> Dict[str, str]:
@@ -75,16 +97,3 @@ class PythonInterpreter(BaseTool):
                     r[key] = str(value)
 
         return result_list
-
-    # langchain does not return a dict as a parameter, only a code string
-    def langchain_call(self, code: str):
-        return self.call({"code": code})
-
-    def to_langchain_tool(self) -> LangchainTool:
-        tool = LangchainTool(
-            name="python_interpreter",
-            description="Executes python code and returns the result. The code runs in a static sandbox without interactive mode, so print output or save output to a file.",
-            func=self.langchain_call,
-        )
-        tool.args_schema = LangchainPythonInterpreterToolInput
-        return tool

@@ -3,6 +3,7 @@
 import { DeleteAgent } from '@/components/Agents/DeleteAgent';
 import { KebabMenu } from '@/components/KebabMenu';
 import { Button, CoralLogo, Icon, Text } from '@/components/Shared';
+import { STRINGS } from '@/constants/strings';
 import { useContextStore } from '@/context';
 import { cn } from '@/utils';
 import { getCohereColor } from '@/utils/getCohereColor';
@@ -10,21 +11,21 @@ import { getCohereColor } from '@/utils/getCohereColor';
 type Props = {
   name: string;
   description?: string;
-  isBaseAgent?: boolean;
+  isDefaultAgent?: boolean;
   id?: string;
 };
 
 /**
  * @description renders a card for an agent with the agent's name, description
  */
-export const DiscoverAgentCard: React.FC<Props> = ({ id, name, description, isBaseAgent }) => {
+export const DiscoverAgentCard: React.FC<Props> = ({ id, name, description, isDefaultAgent }) => {
   const { open, close } = useContextStore();
 
   const handleDeleteAssistant = () => {
     if (!id) return;
     open({
       content: <DeleteAgent name={name} agentId={id} onClose={close} />,
-      title: 'Delete assistant',
+      title: STRINGS.deleteAssistantTitle,
     });
   };
 
@@ -38,11 +39,11 @@ export const DiscoverAgentCard: React.FC<Props> = ({ id, name, description, isBa
               'truncate',
               id && getCohereColor(id),
               {
-                'bg-mushroom-700': isBaseAgent,
+                'bg-mushroom-700': isDefaultAgent,
               }
             )}
           >
-            {isBaseAgent ? (
+            {isDefaultAgent ? (
               <CoralLogo style="secondary" />
             ) : (
               <Text className="uppercase text-white" styleAs="p-lg">
@@ -53,13 +54,13 @@ export const DiscoverAgentCard: React.FC<Props> = ({ id, name, description, isBa
           <Text as="h5" className="truncate">
             {name}
           </Text>
-          {!isBaseAgent && (
+          {!isDefaultAgent && (
             <div className="ml-auto">
               <KebabMenu
                 anchor="bottom end"
                 items={[
                   {
-                    label: 'Delete assistant',
+                    label: STRINGS.deleteAssistant,
                     iconName: 'trash',
                     onClick: handleDeleteAssistant,
                   },
@@ -71,8 +72,8 @@ export const DiscoverAgentCard: React.FC<Props> = ({ id, name, description, isBa
         <Text className="line-clamp-2 flex-grow">{description}</Text>
         <Button
           className="ml-auto"
-          href={isBaseAgent ? '/' : `/a/${id}`}
-          label={<Text className="text-green-250">Try now</Text>}
+          href={isDefaultAgent ? '/' : `/a/${id}`}
+          label={<Text className="text-green-250">{STRINGS.tryNow}</Text>}
           kind="secondary"
           endIcon={<Icon name="arrow-up-right" className="text-green-250" />}
         />

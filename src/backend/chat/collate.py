@@ -1,14 +1,17 @@
-import datetime
 import json
 from typing import Any, Dict, List
 
 from backend.model_deployments.base import BaseDeployment
+from backend.schemas.context import Context
 
 RELEVANCE_THRESHOLD = 0.1
 
 
 async def rerank_and_chunk(
-    tool_results: List[Dict[str, Any]], model: BaseDeployment, **kwargs: Any
+    tool_results: List[Dict[str, Any]],
+    model: BaseDeployment,
+    ctx: Context,
+    **kwargs: Any,
 ) -> List[Dict[str, Any]]:
     """
     Takes a list of tool_results and internally reranks the documents for each query, if there's one e.g:
@@ -18,15 +21,12 @@ async def rerank_and_chunk(
         tool_results (List[Dict[str, Any]]): List of tool_results from different retrievers.
             Each tool_result contains a ToolCall and a list of Outputs.
         model (BaseDeployment): Model deployment.
+        ctx (Context): Context object.
+        kwargs (Any): Additional arguments.
 
     Returns:
         List[Dict[str, Any]]: List of reranked and combined documents.
     """
-    trace_id = kwargs.get("trace_id", "")
-    user_id = kwargs.get("user_id", "")
-    agent_id = kwargs.get("agent_id", "")
-    request = kwargs.get("request")
-
     # If rerank is not enabled return documents as is:
     if not model.rerank_enabled:
         return tool_results
@@ -65,7 +65,8 @@ async def rerank_and_chunk(
             text = output.get("text")
 
             if not text:
-                chunked_outputs.append([output])
+                # If one doesn't have text, skip it
+                reranked_results[tool_call_hashable] = tool_result
                 continue
 
             chunks = chunk(text)
@@ -78,10 +79,7 @@ async def rerank_and_chunk(
         res = await model.invoke_rerank(
             query=query,
             documents=chunked_outputs,
-            trace_id=trace_id,
-            user_id=user_id,
-            agent_id=agent_id,
-            request=request,
+            ctx=ctx,
         )
 
         if not res:

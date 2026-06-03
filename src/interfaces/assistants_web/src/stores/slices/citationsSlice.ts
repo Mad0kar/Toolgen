@@ -1,24 +1,15 @@
 import { StateCreator } from 'zustand';
 
 import { Document } from '@/cohere-client';
+import { decodeBase64, mapExtensionToMimeType } from '@/utils';
 
 import { StoreState } from '..';
 
 const INITIAL_STATE: State = {
   citationReferences: {},
   hasCitations: false,
-  selectedCitation: null,
-  hoveredGenerationId: null,
   searchResults: {},
   outputFiles: {},
-};
-
-type Citation = {
-  generationId: string;
-  start: string;
-  end: string;
-  /** Used to scroll to highlight position */
-  yPosition: number | null;
 };
 
 type CitationReferences = {
@@ -32,13 +23,13 @@ interface SearchResults {
   [documentId: string]: Record<string, any>;
 }
 
-export type OutputFiles = { [name: string]: { name: string; data: string; documentId?: string } };
+export type OutputFiles = {
+  [name: string]: { name: string; data: string; documentId?: string; downloadUrl?: string };
+};
 
 type State = {
   citationReferences: CitationReferences;
   hasCitations: boolean;
-  selectedCitation: Citation | null;
-  hoveredGenerationId: string | null;
   searchResults: SearchResults;
   outputFiles: OutputFiles;
 };
@@ -46,8 +37,6 @@ type State = {
 type Actions = {
   addSearchResults: (results: Record<string, any>) => void;
   addCitation: (generationId: string, startEndKey: string, documents: Document[]) => void;
-  selectCitation: (citation: Citation | null) => void;
-  hoverCitation: (generationId: string | null) => void;
   resetCitations: VoidFunction;
   saveOutputFiles: (outputFiles: OutputFiles) => void;
 };
@@ -88,28 +77,24 @@ export const createCitationsSlice: StateCreator<StoreState, [], [], CitationsSto
       },
     }));
   },
-  selectCitation(citation) {
-    set((state) => ({
-      citations: {
-        ...state.citations,
-        selectedCitation: citation,
-      },
-    }));
-  },
-  hoverCitation(generationId) {
-    set((state) => ({
-      citations: {
-        ...state.citations,
-        hoveredGenerationId: generationId,
-      },
-    }));
-  },
   resetCitations() {
     set(() => ({
       citations: INITIAL_STATE,
     }));
   },
   saveOutputFiles(outputFiles) {
+    for (const [name, file] of Object.entries(outputFiles)) {
+      if (file.downloadUrl) {
+        continue;
+      }
+      const data = decodeBase64(file.data);
+      const fileExtension = file.name.split('.').pop() || '.txt';
+      const mimeType = mapExtensionToMimeType(fileExtension);
+      const blob = new Blob([data], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      outputFiles[name] = { ...file, downloadUrl: url };
+    }
+
     set((state) => ({
       citations: {
         ...state.citations,

@@ -4,6 +4,7 @@ import { Transition } from '@headlessui/react';
 
 import { IconButton } from '@/components/IconButton';
 import { Button, Icon, IconProps, Logo, Tooltip } from '@/components/Shared';
+import { STRINGS } from '@/constants/strings';
 import { env } from '@/env.mjs';
 import { useIsDesktop } from '@/hooks/breakpoint';
 import { useNavigateToNewChat } from '@/hooks/chatRoutes';
@@ -41,8 +42,8 @@ export const AgentsSidePanel: React.FC<React.PropsWithChildren<{ className?: str
     href?: string;
     onClick?: () => void;
   }[] = [
-    { label: 'Create Assistant ', icon: 'add', href: '/new' },
-    { label: 'Discover', icon: 'compass', href: '/discover' },
+    { label: STRINGS.createAssistantTitle, icon: 'add', href: '/new' },
+    { label: STRINGS.discover, icon: 'compass', href: '/discover' },
   ];
 
   return (
@@ -92,7 +93,7 @@ export const AgentsSidePanel: React.FC<React.PropsWithChildren<{ className?: str
           >
             <button onClick={() => navigateToNewChat()}>
               <div className="mr-3 flex items-baseline">
-                <Logo hasCustomLogo={env.NEXT_PUBLIC_HAS_CUSTOM_LOGO === 'true'} />
+                <Logo hasCustomLogo={env.NEXT_PUBLIC_HAS_CUSTOM_LOGO} />
               </div>
             </button>
           </Transition>

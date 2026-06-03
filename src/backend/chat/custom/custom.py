@@ -1,47 +1,60 @@
-from itertools import tee
 from typing import Any, AsyncGenerator, Dict, List
 
 from fastapi import HTTPException
 
 from backend.chat.base import BaseChat
-from backend.chat.collate import rerank_and_chunk, to_dict
+from backend.chat.custom.tool_calls import async_call_tools
 from backend.chat.custom.utils import get_deployment
 from backend.chat.enums import StreamEvent
-from backend.config.tools import AVAILABLE_TOOLS, ToolName
-from backend.crud.file import get_files_by_conversation_id
-from backend.schemas.chat import ChatMessage, ChatRole
+from backend.config.tools import get_available_tools
+from backend.database_models.file import File
+from backend.model_deployments.base import BaseDeployment
+from backend.schemas.chat import ChatMessage, ChatRole, EventState
 from backend.schemas.cohere_chat import CohereChatRequest
-from backend.schemas.tool import Tool
-from backend.services.logger import get_logger, send_log_message
+from backend.schemas.context import Context
+from backend.schemas.tool import Tool, ToolCategory
+from backend.services.chat import check_death_loop
+from backend.services.file import get_file_service
+from backend.tools.utils.tools_checkers import tool_has_category
 
-logger = get_logger()
 MAX_STEPS = 15
-
 
 class CustomChat(BaseChat):
     """Custom chat flow not using integrations for models."""
 
+    event_state = EventState(
+        distances_plans=[],
+        distances_actions=[],
+        previous_plan="",
+        previous_action="",
+    )
+
     async def chat(
-        self, chat_request: CohereChatRequest, **kwargs: Any
+        self,
+        chat_request: CohereChatRequest,
+        ctx: Context,
+        **kwargs: Any,
     ) -> AsyncGenerator[Any, Any]:
         """
         Chat flow for custom models.
 
         Args:
             chat_request (CohereChatRequest): Chat request.
+            ctx (Context): Context.
             **kwargs (Any): Keyword arguments.
 
         Returns:
             Generator[StreamResponse, None, None]: Chat response.
         """
+        logger = ctx.get_logger()
+        # TODO Eugene: Discuss with Scott how to get agent here and use the Agent deployment
         # Choose the deployment model - validation already performed by request validator
-        deployment_model = get_deployment(kwargs.get("deployment_name"), **kwargs)
-        send_log_message(
-            logger,
-            f"Using deployment {deployment_model.__class__.__name__}",
-            level="info",
-            conversation_id=kwargs.get("conversation_id"),
-            user_id=kwargs.get("user_id", ""),
+        deployment_name = ctx.get_deployment_name()
+        deployment_model = get_deployment(deployment_name, ctx)
+
+        # Bind the logger with the conversation ID
+        logger.debug(
+            event=f"[Custom Chat] Using deployment: {deployment_model.__class__.__name__}",
         )
 
         if len(chat_request.tools) > 0 and len(chat_request.documents) > 0:
@@ -53,28 +66,23 @@ class CustomChat(BaseChat):
         self.is_first_start = True
 
         try:
-            stream = self.call_chat(self.chat_request, deployment_model, **kwargs)
+            stream = self.call_chat(self.chat_request, deployment_model, ctx, **kwargs)
 
             async for event in stream:
-                result = self.handle_event(event, chat_request)
+                result = self.handle_event(event, chat_request, ctx)
 
                 if result:
                     yield result
 
-                if event[
-                    "event_type"
-                ] == StreamEvent.STREAM_END and self.is_final_event(
-                    event, chat_request
-                ):
-                    send_log_message(
-                        logger,
-                        f"Final event: {event}",
-                        level="info",
-                        conversation_id=kwargs.get("conversation_id"),
-                        user_id=kwargs.get("user_id"),
-                    )
+                if (event["event_type"] == StreamEvent.STREAM_END
+                and self.is_final_event(event, chat_request)):
+                    logger.debug(event=f"Final event: {event}")
                     break
         except Exception as e:
+            logger.exception(
+                event="[Custom Chat] Error occurred during chat stream",
+                error=str(e),
+            )
             yield {
                 "event_type": StreamEvent.STREAM_END,
                 "finish_reason": "ERROR",
@@ -101,13 +109,19 @@ class CustomChat(BaseChat):
         )
 
     def handle_event(
-        self, event: Dict[str, Any], chat_request: CohereChatRequest
+        self, event: Dict[str, Any], chat_request: CohereChatRequest, ctx: Context
     ) -> Dict[str, Any]:
         # All events other than stream start and stream end are returned
         if (
             event["event_type"] != StreamEvent.STREAM_START
             and event["event_type"] != StreamEvent.STREAM_END
+            and event["event_type"] != StreamEvent.TOOL_CALLS_GENERATION
         ):
+            return event
+
+        # If the event is a tool call generation, we need to check if the tool call is similar to previous tool calls
+        if event["event_type"] == StreamEvent.TOOL_CALLS_GENERATION:
+            self.event_state = check_death_loop(event, self.event_state, ctx)
             return event
 
         # Only the first occurrence of stream start is returned
@@ -131,60 +145,68 @@ class CustomChat(BaseChat):
             and "tool_calls" in event
         )
 
-    async def call_chat(self, chat_request, deployment_model, **kwargs: Any):
-        trace_id = kwargs.get("trace_id", "")
-        user_id = kwargs.get("user_id", "")
-        agent_id = kwargs.get("agent_id", "")
+    async def call_chat(
+        self,
+        chat_request: CohereChatRequest,
+        deployment_model: BaseDeployment,
+        ctx: Context,
+        **kwargs: Any,
+    ):
+        logger = ctx.get_logger()
         managed_tools = self.get_managed_tools(chat_request)
+        managed_tools_full_schema = self.get_managed_tools(chat_request, full_schema=True)
+        session = kwargs.get("session")
+        user_id = ctx.get_user_id()
+        agent_id = ctx.get_agent_id()
 
-        tool_names = []
+        file_reader_tools_names = []
         if managed_tools:
             chat_request.tools = managed_tools
-            tool_names = [tool.name for tool in managed_tools]
+            file_reader_tools_names = [tool.name for tool in managed_tools_full_schema if tool_has_category(tool, ToolCategory.FileLoader)]
 
-        # Add files to chat history if the tool requires it and files are provided
-        if chat_request.file_ids:
-            if ToolName.Read_File in tool_names or ToolName.Search_File in tool_names:
-                chat_request.chat_history = self.add_files_to_chat_history(
-                    chat_request.chat_history,
-                    kwargs.get("conversation_id"),
-                    kwargs.get("session"),
-                    kwargs.get("user_id"),
+        # Get files if available
+        all_files = []
+        if chat_request.file_ids or chat_request.agent_id:
+            if file_reader_tools_names:
+                files = get_file_service().get_files_by_conversation_id(
+                    session, user_id, ctx.get_conversation_id(), ctx
                 )
+
+                agent_files = []
+                if agent_id:
+                    agent_files = get_file_service().get_files_by_agent_id(
+                        session, user_id, agent_id, ctx
+                    )
+
+                all_files = files + agent_files
+
+        # Add files to chat history if there are any
+        # Otherwise, remove the Read_File and Search_File tools and all other FileReader tools
+        if all_files:
+            chat_request.chat_history = self.add_files_to_chat_history(
+                chat_request.chat_history,
+                session,
+                files + agent_files,
+            )
         else:
-            # TODO: remove this workaround
-            # For now we're removing the Read_File and Search_File tools if no files are provided
             chat_request.tools = [
                 tool
                 for tool in chat_request.tools
-                if tool.name != ToolName.Read_File and tool.name != ToolName.Search_File
+                if tool.name not in file_reader_tools_names
             ]
 
         # Loop until there are no new tool calls
         for step in range(MAX_STEPS):
-            send_log_message(
-                logger,
-                f"Step {step + 1}",
-                level="info",
-                conversation_id=kwargs.get("conversation_id"),
-                user_id=kwargs.get("user_id"),
-            )
-            send_log_message(
-                logger,
-                f"Chat request: {chat_request.dict()}",
-                level="info",
-                conversation_id=kwargs.get("conversation_id"),
-                user_id=kwargs.get("user_id"),
+            logger.debug(
+                event=f"[Custom Chat] Chat request: {chat_request.model_dump()}",
+                step=step + 1,
             )
 
             # Invoke chat stream
             has_tool_calls = False
             async for event in deployment_model.invoke_chat_stream(
                 chat_request,
-                trace_id=trace_id,
-                user_id=user_id,
-                agent_id=agent_id,
-                request=kwargs.get("request"),
+                ctx,
             ):
                 if event["event_type"] == StreamEvent.STREAM_END:
                     chat_request.chat_history = event["response"].get(
@@ -195,24 +217,20 @@ class CustomChat(BaseChat):
 
                 yield event
 
-            send_log_message(
-                logger,
-                f"Chat stream completed. Has tool calls: {has_tool_calls}",
-                level="info",
-                conversation_id=kwargs.get("conversation_id"),
-                user_id=kwargs.get("user_id"),
+            logger.info(
+                event=f"[Custom Chat] Chat stream completed: Has tool calls {has_tool_calls}",
             )
 
             # Check for new tool calls in the chat history
             if has_tool_calls:
                 # Handle tool calls
-                tool_results = await self.call_tools(
-                    chat_request.chat_history, deployment_model, **kwargs
+                tool_results = await async_call_tools(
+                    chat_request.chat_history, deployment_model, ctx, **kwargs
                 )
 
                 # Remove the message if tool results are present
                 if tool_results:
-                    chat_request.tool_results = [result for result in tool_results]
+                    chat_request.tool_results = list(tool_results)
                     chat_request.message = ""
             else:
                 break  # Exit loop if there are no new tool calls
@@ -228,125 +246,40 @@ class CustomChat(BaseChat):
 
         chat_request.chat_history.extend(tool_results)
 
-    async def call_tools(self, chat_history, deployment_model, **kwargs: Any):
-        tool_results = []
-        if "tool_calls" not in chat_history[-1]:
-            return tool_results
+    def get_managed_tools(self, chat_request: CohereChatRequest, full_schema=False):
+        available_tools = get_available_tools()
+        if full_schema:
+            return [
+                available_tools.get(tool.name)
+                for tool in chat_request.tools
+                if available_tools.get(tool.name)
+            ]
 
-        tool_calls = chat_history[-1]["tool_calls"]
-        tool_plan = chat_history[-1].get("message", None)
-        send_log_message(
-            logger,
-            f"Tool calls: {tool_calls}",
-            level="info",
-            conversation_id=kwargs.get("conversation_id"),
-            user_id=kwargs.get("user_id"),
-        )
-        send_log_message(
-            logger,
-            f"Tool plan: {tool_plan}",
-            level="info",
-            conversation_id=kwargs.get("conversation_id"),
-            user_id=kwargs.get("user_id"),
-        )
-
-        # TODO: Call tools in parallel
-        for tool_call in tool_calls:
-            tool = AVAILABLE_TOOLS.get(tool_call["name"])
-            if not tool:
-                continue
-
-            outputs = await tool.implementation().call(
-                parameters=tool_call.get("parameters"),
-                session=kwargs.get("session"),
-                model_deployment=deployment_model,
-                user_id=kwargs.get("user_id"),
-                trace_id=kwargs.get("trace_id"),
-                agent_id=kwargs.get("agent_id"),
-            )
-
-            # If the tool returns a list of outputs, append each output to the tool_results list
-            # Otherwise, append the single output to the tool_results list
-            outputs = outputs if isinstance(outputs, list) else [outputs]
-            for output in outputs:
-                tool_results.append({"call": tool_call, "outputs": [output]})
-
-        tool_results = await rerank_and_chunk(tool_results, deployment_model, **kwargs)
-        send_log_message(
-            logger,
-            f"Tool results: {tool_results}",
-            level="info",
-            conversation_id=kwargs.get("conversation_id"),
-            user_id=kwargs.get("user_id"),
-        )
-
-        return tool_results
-
-    async def handle_tool_calls_stream(self, tool_results_stream):
-        # Process the stream and return the chat history, and a copy of the stream and a flag indicating if the response is a direct answer
-        stream, stream_copy = tee(tool_results_stream)
-        is_direct_answer = True
-
-        chat_history = []
-        async for event in stream:
-            if event["event_type"] == StreamEvent.STREAM_END:
-                stream_chat_history = []
-                if "response" in event:
-                    stream_chat_history = event["response"].get("chat_history", [])
-                elif "chat_history" in event:
-                    stream_chat_history = event["chat_history"]
-
-                for message in stream_chat_history:
-                    if not isinstance(message, dict):
-                        message = to_dict(message)
-
-                    chat_history.append(
-                        ChatMessage(
-                            role=message.get("role"),
-                            message=message.get("message", ""),
-                            tool_results=message.get("tool_results", None),
-                            tool_calls=message.get("tool_calls", None),
-                        )
-                    )
-
-            elif (
-                event["event_type"] == StreamEvent.TOOL_CALLS_GENERATION
-                and "tool_calls" in event
-            ):
-                is_direct_answer = False
-
-        return is_direct_answer, chat_history, stream_copy
-
-    def get_managed_tools(self, chat_request: CohereChatRequest):
         return [
-            Tool(**AVAILABLE_TOOLS.get(tool.name).model_dump())
+            Tool(**available_tools.get(tool.name).model_dump())
             for tool in chat_request.tools
-            if AVAILABLE_TOOLS.get(tool.name)
+            if available_tools.get(tool.name)
         ]
 
     def add_files_to_chat_history(
         self,
         chat_history: List[Dict[str, str]],
-        conversation_id: str,
         session: Any,
-        user_id: str,
+        files: list[File],
     ) -> List[Dict[str, str]]:
-        if session is None or conversation_id is None or len(conversation_id) == 0:
+        if session is None or len(files) == 0:
             return chat_history
 
-        available_files = get_files_by_conversation_id(
-            session, conversation_id, user_id
-        )
         files_message = "The user uploaded the following attachments:\n"
 
-        for file in available_files:
+        for file in files:
             word_count = len(file.file_content.split())
 
             # Use the first 25 words as the document preview in the preamble
             num_words = min(25, word_count)
             preview = " ".join(file.file_content.split()[:num_words])
 
-            files_message += f"Filename: {file.file_name}\nWord Count: {word_count} Preview: {preview}\n\n"
+            files_message += f"Filename: {file.file_name}\nFile ID: {file.id}\nWord Count: {word_count} Preview: {preview}\n\n"
 
         chat_history.append(ChatMessage(message=files_message, role=ChatRole.SYSTEM))
         return chat_history

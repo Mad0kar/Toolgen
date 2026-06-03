@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from backend.config.auth import ENABLED_AUTH_STRATEGY_MAPPING, is_authentication_enabled
 from backend.crud import user as user_crud
 from backend.database_models import User
-from backend.services.auth.jwt import JWTService
 
 
 def is_enabled_authentication_strategy(strategy_name: str) -> bool:
@@ -38,12 +37,16 @@ def get_or_create_user(session: Session, token_user: dict[str, str]) -> dict:
     """
     email = token_user.get("email")
     fullname = token_user.get("name")
+    external_id = token_user.get("sub")
 
-    user = session.query(User).filter(User.email == email).first()
+    if external_id:
+        user = user_crud.get_user_by_external_id(session, external_id)
+    else:
+        user = session.query(User).filter(User.email == email).first()
 
     # Create User if DNE
     if not user:
-        db_user = User(fullname=fullname, email=email)
+        db_user = User(fullname=fullname, email=email, external_id=external_id)
         user = user_crud.create_user(session, db_user)
 
     return {
@@ -67,6 +70,9 @@ def get_header_user_id(request: Request) -> str:
     Returns:
         str: User ID
     """
+    # Import here to avoid circular imports
+    from backend.services.auth.jwt import JWTService
+
     # Check if Auth enabled
     if is_authentication_enabled():
         # Validation already performed, so just retrieve value
@@ -79,3 +85,22 @@ def get_header_user_id(request: Request) -> str:
     else:
         user_id = request.headers.get("User-Id", "")
         return user_id
+
+
+def has_header_user_id(request: Request) -> bool:
+    """
+    Check whether we can get the user_id from the request headers.
+
+    Args:
+        request (Request): current Request
+
+    Returns:
+        bool: Whether the user_id is present in the headers
+    """
+
+    if is_authentication_enabled():
+        authorization = request.headers.get("Authorization")
+        return authorization is not None and authorization.startswith("Bearer")
+    else:
+        user_id = request.headers.get("User-Id")
+        return user_id is not None

@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json ./
+COPY patches ./patches
 RUN npm ci
 
 COPY src ./src
@@ -27,4 +28,5 @@ CMD npm run dev
 
 # Production specifc tareget
 FROM base AS prod
+RUN npm run build
 CMD npm run start

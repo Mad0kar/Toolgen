@@ -1,112 +1,124 @@
-import asyncio
-import io
-from typing import Any, Dict, List
+from concurrent import futures
+from typing import Any, Dict, List, TypedDict
 
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
-from backend.services.compass import Compass
-from backend.services.logger import get_logger
+from backend.database_models.database import get_session
+from backend.services.logger.utils import LoggerFactory
+from backend.tools.base import ToolAuthException
+from backend.tools.google_drive.auth import GoogleDriveAuth
+from backend.tools.google_drive.constants import (
+    CSV_MIMETYPE,
+    DOC_FIELDS,
+    GOOGLE_DRIVE_TOOL_ID,
+    TEXT_MIMETYPE,
+)
 
-from .constants import CSV_MIMETYPE, DOC_FIELDS, TEXT_MIMETYPE
-
-logger = get_logger()
-
-
-def extract_links(files: List[Dict[str, str]]) -> Dict[str, str]:
-    id_to_urls = dict()
-    for _file in files:
-        export_links = _file.pop("exportLinks", {})
-        id = _file.get("id")
-        if id is None:
-            continue
-
-        if TEXT_MIMETYPE in export_links:
-            id_to_urls[id] = export_links[TEXT_MIMETYPE]
-        elif CSV_MIMETYPE in export_links:
-            id_to_urls[id] = export_links[CSV_MIMETYPE]
-    return id_to_urls
+logger = LoggerFactory().get_logger()
 
 
-def extract_web_view_links(files: List[Dict[str, str]]) -> Dict[str, str]:
-    id_to_urls = dict()
-    for _file in files:
-        web_view_link = _file.pop("webViewLink", "")
-        id = _file.get("id")
-        if id is None:
-            continue
-
-        id_to_urls[id] = web_view_link
-    return id_to_urls
+class Service(TypedDict):
+    service: Any
+    creds: Credentials
 
 
-def extract_titles(files: List[Dict[str, str]]) -> Dict[str, str]:
-    id_to_names = dict()
-    for _file in files:
-        name = _file.pop("name", "")
-        id = _file.get("id")
-        if id is None:
-            continue
+def get_service(api: str, user_id: str, version: str = "v3") -> Service:
+    # Get google credentials
+    gdrive_auth = GoogleDriveAuth()
+    agent_creator_auth_token = None
 
-        id_to_names[id] = name
-    return id_to_names
+    session = next(get_session())
+    if gdrive_auth.is_auth_required(session, user_id=user_id):
+        session.close()
+        raise ToolAuthException(
+            "Sync GDrive Error: Agent creator credentials need to re-authenticate",
+            GOOGLE_DRIVE_TOOL_ID,
+        )
+
+    agent_creator_auth_token = gdrive_auth.get_token(session=session, user_id=user_id)
+    if agent_creator_auth_token is None:
+        session.close()
+        raise Exception("Sync GDrive Error: No agent creator credentials found")
+
+    creds = Credentials(agent_creator_auth_token)
+    service = build(api, version, credentials=creds, cache_discovery=False)
+    session.close()
+    return {"service": service, "creds": creds}
 
 
-def process_shortcut_files(service: Any, files: List[Dict[str, str]]) -> Dict[str, str]:
-    processed_files = []
-    for file in files:
-        if file["mimeType"] == "application/vnd.google-apps.shortcut":
+"""
+GDrive GET file
+"""
+
+
+def perform_get_batch(file_ids: List[str], user_id: str) -> List[Dict[str, str]]:
+    results = []
+
+    with futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures_list = [
+            executor.submit(_get_file, file_id, user_id) for file_id in file_ids
+        ]
+        for future in futures.as_completed(futures_list):
             try:
-                targetId = file["shortcutDetails"]["targetId"]
-                targetFile = (
-                    service.files()
-                    .get(
-                        fileId=targetId,
-                        fields=DOC_FIELDS,
-                        supportsAllDrives=True,
-                    )
-                    .execute()
+                results.append(future.result())
+            except Exception as e:
+                raise e
+    return results
+
+
+def _get_file(file_id: str, user_id: str):
+    (service,) = (
+        get_service(api="drive", user_id=user_id)[key] for key in ("service",)
+    )
+    return (
+        service.files()
+        .get(
+            fileId=file_id,
+            fields=DOC_FIELDS,
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
+
+def process_shortcut_file(service: Any, file: Dict[str, str]) -> Dict[str, str]:
+    if file["mimeType"] == "application/vnd.google-apps.shortcut":
+        try:
+            targetId = file["shortcutDetails"]["targetId"]
+            targetFile = (
+                service.files()
+                .get(
+                    fileId=targetId,
+                    fields=DOC_FIELDS,
+                    supportsAllDrives=True,
                 )
-                processed_files.append(targetFile)
-            except Exception as _e:
-                continue
-        else:
-            processed_files.append(file)
-
-    return processed_files
-
-
-async def non_native_files_perform(
-    service: Any, compass: Compass, files: List[Dict[str, str]]
-) -> dict[str, str]:
-    return await _download_non_native_files(service, compass, files)
-
-
-async def _download_non_native_files(
-    service: Any, compass: Compass, files: List[Dict[str, str]]
-):
-    tasks = [_download_non_native_file(service, compass, file["id"]) for file in files]
-    return {id: text for (id, text) in (await asyncio.gather(*tasks))}
+                .execute()
+            )
+            return targetFile
+        except Exception as error:
+            file_id = file["id"]
+            logger.error(
+                event="An error occurred processing a shortcut file with id",
+                file_id=file_id,
+                type=type(error),
+                error=error,
+            )
+            return {}
+    else:
+        return file
 
 
-async def _download_non_native_file(service: Any, compass: Compass, file_id: str):
-    try:
-        request = service.files().get_media(fileId=file_id)
-        file = io.BytesIO()
-        downloader = MediaIoBaseDownload(file, request)
-        done = False
-        while done is False:
-            _status, done = downloader.next_chunk()
-    except HttpError as error:
-        logger.error("An error occurred: {}".format(error))
-        file = None
+def extract_web_view_link(file: Dict[str, str]) -> str:
+    return file.pop("webViewLink", "")
 
-    if file is None:
-        return None
+def extract_title(file: Dict[str, str]) -> str:
+    return file.pop("name", "")
 
-    file_bytes = file.getvalue()
-    file_text = compass.invoke(
-        action=Compass.ValidActions.PROCESS_FILE,
-        parameters={"file_id": file_id, "file_text": file_bytes},
-    )[0].content["text"]
-    return (file_id, file_text)
+
+def extract_export_link(file: Dict[str, str]) -> str:
+    export_links = file.pop("exportLinks", {})
+    if TEXT_MIMETYPE in export_links:
+        return export_links[TEXT_MIMETYPE]
+    elif CSV_MIMETYPE in export_links:
+        return export_links[CSV_MIMETYPE]
+    return ""

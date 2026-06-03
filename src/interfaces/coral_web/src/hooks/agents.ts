@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 
 import { Agent, ApiError, CreateAgent, UpdateAgent, useCohereClient } from '@/cohere-client';
 import { LOCAL_STORAGE_KEYS } from '@/constants';
+import { STRINGS } from '@/constants/strings';
 
 export const useListAgents = () => {
   const cohereClient = useCohereClient();
@@ -50,23 +51,12 @@ export const useAgent = ({ agentId }: { agentId?: string }) => {
     enabled: !!agentId,
     queryFn: async () => {
       try {
-        if (!agentId) throw new Error('Agent ID not found');
+        if (!agentId) throw new Error(STRINGS.agentIDNotFoundError);
         return await cohereClient.getAgent(agentId);
       } catch (e) {
         console.error(e);
         throw e;
       }
-    },
-  });
-};
-
-export const useDefaultAgent = (enabled?: boolean) => {
-  const cohereClient = useCohereClient();
-  return useQuery({
-    queryKey: ['defaultAgent'],
-    enabled: enabled,
-    queryFn: async () => {
-      return await cohereClient.getDefaultAgent();
     },
   });
 };

@@ -1,4 +1,9 @@
-import { Citation, File, StreamToolCallsGeneration, StreamToolInput } from '@/cohere-client';
+import {
+  Citation,
+  ListConversationFile,
+  StreamToolCallsGeneration,
+  StreamToolInput,
+} from '@/cohere-client';
 
 export enum BotState {
   LOADING = 'loading',
@@ -14,6 +19,7 @@ export enum MessageType {
 }
 
 type BaseMessage = {
+  id?: string | null;
   type: MessageType;
   text: string;
   error?: string;
@@ -84,7 +90,7 @@ export type ErrorMessage = BaseMessage & {
  */
 export type UserMessage = BaseMessage & {
   type: MessageType.USER;
-  files?: File[];
+  files?: ListConversationFile[];
 };
 
 export type ChatMessage = UserMessage | BotMessage;
@@ -100,6 +106,10 @@ export type StreamingMessage = FulfilledMessage | TypingMessage | LoadingMessage
 
 export const isUserMessage = (message: ChatMessage): message is UserMessage => {
   return message.type === MessageType.USER;
+};
+
+export const isBotMessage = (message: ChatMessage): message is BotMessage => {
+  return message.type === MessageType.BOT;
 };
 
 export const isFulfilledMessage = (message: ChatMessage): message is FulfilledMessage => {

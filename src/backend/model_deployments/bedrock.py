@@ -7,7 +7,7 @@ from backend.config.settings import Settings
 from backend.model_deployments.base import BaseDeployment
 from backend.model_deployments.utils import get_model_config_var
 from backend.schemas.cohere_chat import CohereChatRequest
-from backend.services.metrics import collect_metrics_chat_stream, collect_metrics_rerank
+from backend.schemas.context import Context
 
 BEDROCK_ACCESS_KEY_ENV_VAR = "BEDROCK_ACCESS_KEY"
 BEDROCK_SECRET_KEY_ENV_VAR = "BEDROCK_SECRET_KEY"
@@ -24,7 +24,7 @@ BEDROCK_ENV_VARS = [
 class BedrockDeployment(BaseDeployment):
     DEFAULT_MODELS = ["cohere.command-r-plus-v1:0"]
 
-    bedrock_config = Settings().deployments.bedrock
+    bedrock_config = Settings().get('deployments.bedrock')
     region_name = bedrock_config.region_name
     access_key = bedrock_config.access_key
     secret_access_key = bedrock_config.secret_key
@@ -32,10 +32,6 @@ class BedrockDeployment(BaseDeployment):
 
     def __init__(self, **kwargs: Any):
         self.client = cohere.BedrockClient(
-            # TODO: remove hardcoded models once the SDK is updated
-            chat_model="cohere.command-r-plus-v1:0",
-            embed_model="cohere.embed-multilingual-v3",
-            generate_model="cohere.command-text-v14",
             aws_access_key=get_model_config_var(
                 BEDROCK_ACCESS_KEY_ENV_VAR, BedrockDeployment.access_key, **kwargs
             ),
@@ -83,9 +79,8 @@ class BedrockDeployment(BaseDeployment):
         )
         yield to_dict(response)
 
-    @collect_metrics_chat_stream
     async def invoke_chat_stream(
-        self, chat_request: CohereChatRequest
+        self, chat_request: CohereChatRequest, ctx: Context, **kwargs: Any
     ) -> AsyncGenerator[Any, Any]:
         # bedrock accepts a subset of the chat request fields
         bedrock_chat_req = chat_request.model_dump(
@@ -98,6 +93,7 @@ class BedrockDeployment(BaseDeployment):
         for event in stream:
             yield to_dict(event)
 
-    @collect_metrics_rerank
-    async def invoke_rerank(self, query: str, documents: List[Dict[str, Any]]) -> Any:
+    async def invoke_rerank(
+        self, query: str, documents: List[Dict[str, Any]], ctx: Context
+    ) -> Any:
         return None

@@ -1,12 +1,13 @@
-import os
 from logging.config import fileConfig
 
 from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
+from backend.config.settings import Settings
+
 # Need to import Models - note they will be unused but are required for Alembic to detect
-from backend.database_models import *
+from backend.database_models import *  # noqa
 from backend.database_models.base import Base
 
 load_dotenv()
@@ -15,7 +16,7 @@ load_dotenv()
 config = context.config
 
 # Overwrite alembic.file `sqlachemy.url` value
-config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+config.set_main_option("sqlalchemy.url", Settings().get('database.url'))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -24,6 +25,13 @@ if config.config_file_name is not None:
 
 # IMPORTANT: Sets target for migration generation
 target_metadata = Base.metadata
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table" and reflected and compare_to is None:
+        return False
+    else:
+        return True
 
 
 def run_migrations_offline() -> None:
@@ -44,6 +52,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -76,6 +85,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             process_revision_directives=process_revision_directives,
+            include_object=include_object,
         )
 
         with context.begin_transaction():

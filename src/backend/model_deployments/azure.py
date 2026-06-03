@@ -1,4 +1,3 @@
-import os
 from typing import Any, AsyncGenerator, Dict, List
 
 import cohere
@@ -8,7 +7,7 @@ from backend.config.settings import Settings
 from backend.model_deployments.base import BaseDeployment
 from backend.model_deployments.utils import get_model_config_var
 from backend.schemas.cohere_chat import CohereChatRequest
-from backend.services.metrics import collect_metrics_chat_stream, collect_metrics_rerank
+from backend.schemas.context import Context
 
 AZURE_API_KEY_ENV_VAR = "AZURE_API_KEY"
 # Example URL: "https://<endpoint>.<region>.inference.ai.azure.com/v1"
@@ -26,7 +25,7 @@ class AzureDeployment(BaseDeployment):
 
     DEFAULT_MODELS = ["azure-command"]
 
-    azure_config = Settings().deployments.azure
+    azure_config = Settings().get('deployments.azure')
     default_api_key = azure_config.api_key
     default_chat_endpoint_url = azure_config.endpoint_url
 
@@ -69,9 +68,8 @@ class AzureDeployment(BaseDeployment):
         )
         yield to_dict(response)
 
-    @collect_metrics_chat_stream
     async def invoke_chat_stream(
-        self, chat_request: CohereChatRequest, **kwargs
+        self, chat_request: CohereChatRequest, ctx: Context, **kwargs
     ) -> AsyncGenerator[Any, Any]:
         stream = self.client.chat_stream(
             **chat_request.model_dump(exclude={"stream", "file_ids", "agent_id"}),
@@ -80,6 +78,7 @@ class AzureDeployment(BaseDeployment):
         for event in stream:
             yield to_dict(event)
 
-    @collect_metrics_rerank
-    async def invoke_rerank(self, query: str, documents: List[Dict[str, Any]]) -> Any:
+    async def invoke_rerank(
+        self, query: str, documents: List[Dict[str, Any]], ctx: Context
+    ) -> Any:
         return None

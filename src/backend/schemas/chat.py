@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, ClassVar, Dict, List, Union
 from uuid import uuid4
@@ -10,6 +11,13 @@ from backend.schemas.document import Document
 from backend.schemas.search_query import SearchQuery
 from backend.schemas.tool import Tool, ToolCall, ToolCallDelta
 
+
+@dataclass
+class EventState:
+    distances_plans: list
+    distances_actions: list
+    previous_plan: str
+    previous_action: str
 
 class ChatRole(StrEnum):
     """One of CHATBOT|USER|SYSTEM to identify who the message is coming from."""
@@ -173,6 +181,7 @@ class StreamToolCallsGeneration(ChatResponse):
 
 
 class StreamEnd(ChatResponse):
+    message_id: str | None = Field(default=None)
     response_id: str | None = Field(default=None)
     event_type: ClassVar[StreamEvent] = StreamEvent.STREAM_END
     generation_id: str | None = Field(default=None)
@@ -249,6 +258,10 @@ class NonStreamedChatResponse(ChatResponse):
         title="List of tool calls generated for custom tools",
         default=[],
     )
+    error: str | None = Field(
+        title="Error message if the response is an error.",
+        default=None,
+    )
 
 
 class StreamToolCallsChunk(ChatResponse):
@@ -295,9 +308,6 @@ class ChatResponseEvent(BaseModel):
 
 
 class BaseChatRequest(BaseModel):
-    # user_id: str = Field(
-    #     title="A user id to store to store the conversation under.", exclude=True
-    # )
     message: str = Field(
         title="The message to send to the chatbot.",
     )
@@ -309,14 +319,13 @@ class BaseChatRequest(BaseModel):
         default_factory=lambda: str(uuid4()),
         title="To store a conversation then create a conversation id and use it for every related request",
     )
-
     tools: List[Tool] | None = Field(
         default_factory=list,
         title="""
             List of custom or managed tools to use for the response.
             If passing in managed tools, you only need to provide the name of the tool.
             If passing in custom tools, you need to provide the name, description, and optionally parameter defintions of the tool.
-            Passing a mix of custom and managed tools is not supported. 
+            Passing a mix of custom and managed tools is not supported.
 
             Managed Tools Examples:
             tools=[
@@ -355,7 +364,7 @@ class BaseChatRequest(BaseModel):
                             "type": "int",
                             "required": true
                         }
-                    }  
+                    }
                 },
                 {
                     "name": "joke_generator",

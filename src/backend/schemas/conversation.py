@@ -1,9 +1,9 @@
 import datetime
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, computed_field
 
-from backend.schemas.file import File
+from backend.schemas.file import ConversationFilePublic
 from backend.schemas.message import Message
 
 
@@ -19,9 +19,10 @@ class Conversation(ConversationBase):
 
     title: str
     messages: List[Message]
-    files: List[File]
+    files: List[ConversationFilePublic]
     description: Optional[str]
     agent_id: Optional[str]
+    is_pinned: bool
 
     @computed_field(return_type=int)
     def total_file_size(self):
@@ -48,9 +49,14 @@ class UpdateConversationRequest(BaseModel):
         from_attributes = True
 
 
+class ToggleConversationPinRequest(BaseModel):
+    is_pinned: bool
+
+
 class DeleteConversationResponse(BaseModel):
     pass
 
 
 class GenerateTitleResponse(BaseModel):
     title: str
+    error: Optional[str] = None

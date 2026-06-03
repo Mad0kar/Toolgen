@@ -1,0 +1,33 @@
+deployments:
+  default_deployment:
+  enabled_deployments:
+  sagemaker:
+    region_name:
+    endpoint_name:
+  azure:
+    endpoint_url:
+  bedrock:
+    region_name:
+  single_container:
+    model:
+    url:
+database:
+  url:
+redis:
+  url:
+tools:
+  python_interpreter:
+    url:
+feature_flags:
+  # Experimental features
+  use_agents_view: false
+  # Community features
+  use_community_features: true
+auth:
+  enabled_auth:
+  backend_hostname:
+  frontend_hostname:
+logger:
+  level: INFO
+  strategy: structlog
+  renderer: json

@@ -1,7 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import Float, ForeignKey, Integer, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database_models.agent_tool_metadata import AgentToolMetadata
@@ -16,26 +15,46 @@ class Agent(Base):
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     preamble: Mapped[str] = mapped_column(Text, default="", nullable=False)
     temperature: Mapped[float] = mapped_column(Float, default=0.3, nullable=False)
-    tools: Mapped[list[str]] = mapped_column(ARRAY(Text), default=[], nullable=False)
+
+    tools: Mapped[list[str]] = mapped_column(JSON, default=[], nullable=False)
     tools_metadata: Mapped[list[AgentToolMetadata]] = relationship("AgentToolMetadata")
 
-    # TODO @scott-cohere: eventually switch to Fkey when new deployment tables are implemented
-    # TODO @scott-cohere: deployments have different names for models, need to implement mapping later
-    # enum place holders
-    model: Mapped[str] = mapped_column(Text, nullable=False)
-    # This is not used for now, just default it to Cohere Platform
-    deployment: Mapped[str] = mapped_column(
-        Text,
-        nullable=False,
-    )
-
-    user_id: Mapped[str] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    user_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", name="agents_user_id_fkey", ondelete="CASCADE")
     )
     organization_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey(
             "organizations.id", name="agents_organization_id_fkey", ondelete="CASCADE"
         )
     )
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    __table_args__ = (UniqueConstraint("name", "version", name="_name_version_uc"),)
+    deployment_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey(
+            "deployments.id", name="agents_deployment_id_fkey", ondelete="CASCADE"
+        )
+    )
+
+    model_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey(
+            "models.id", name="agents_model_id_fkey", ondelete="CASCADE"
+        )
+    )
+
+    user = relationship("User", back_populates="agents")
+    assigned_deployment = relationship("Deployment", backref="agents")
+    assigned_model = relationship("Model", backref="agents")
+
+    # TODO Eugene  - add the composite index here if needed
+    __table_args__ = (
+        UniqueConstraint("name", "version", "user_id", name="_name_version_user_uc"),
+    )
+
+    @property
+    def model(self) -> Optional[str]:
+        return self.assigned_model.name if self.assigned_model else None
+
+    # Property for deployment name
+    @property
+    def deployment(self) -> Optional[str]:
+        return self.assigned_deployment.name if self.assigned_deployment else None

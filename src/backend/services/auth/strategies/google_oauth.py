@@ -1,11 +1,12 @@
-import logging
-
 import requests
 from authlib.integrations.requests_client import OAuth2Session
 from starlette.requests import Request
 
 from backend.config.settings import Settings
 from backend.services.auth.strategies.base import BaseOAuthStrategy
+from backend.services.logger.utils import LoggerFactory
+
+logger = LoggerFactory().get_logger()
 
 
 class GoogleOAuth(BaseOAuthStrategy):
@@ -18,16 +19,18 @@ class GoogleOAuth(BaseOAuthStrategy):
 
     def __init__(self):
         try:
-            self.settings = Settings().auth.google_oauth
+            self.settings = Settings().get('auth.google_oauth')
             self.REDIRECT_URI = (
-                f"{Settings().auth.frontend_hostname}/auth/{self.NAME.lower()}"
+                f"{Settings().get('auth.frontend_hostname')}/auth/{self.NAME.lower()}"
             )
             self.client = OAuth2Session(
                 client_id=self.settings.client_id,
                 client_secret=self.settings.client_secret,
             )
         except Exception as e:
-            logging.error(f"Error during initializing of GoogleOAuth class: {str(e)}")
+            logger.error(
+                event=f"[Google OAuth] Error during initializing of GoogleOAuth class: {str(e)}"
+            )
             raise
 
     def get_client_id(self):
@@ -50,9 +53,9 @@ class GoogleOAuth(BaseOAuthStrategy):
             self.TOKEN_ENDPOINT = endpoints["token_endpoint"]
             self.USERINFO_ENDPOINT = endpoints["userinfo_endpoint"]
             self.AUTHORIZATION_ENDPOINT = endpoints["authorization_endpoint"]
-        except Exception as e:
-            logging.error(
-                f"Error fetching `token_endpoint` and `userinfo_endpoint` from {endpoints}."
+        except Exception:
+            logger.error(
+                event=f"[Google OAuth] Error fetching endpoints: `token_endpoint`, `userinfo_endpoint` or `authorization_endpoint` not found in {endpoints}."
             )
             raise
 
@@ -66,7 +69,7 @@ class GoogleOAuth(BaseOAuthStrategy):
         Returns:
             Access token.
         """
-        token = self.client.fetch_token(
+        _ = self.client.fetch_token(
             url=self.TOKEN_ENDPOINT,
             authorization_response=str(request.url),
             redirect_uri=self.REDIRECT_URI,

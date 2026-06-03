@@ -1,7 +1,19 @@
 import datetime
+from enum import StrEnum
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+
+class AgentToolMetadataArtifactsType(StrEnum):
+    DOMAIN = "domain"
+    SITE = "site"
+
+
+class AgentVisibility(StrEnum):
+    PRIVATE = "private"
+    PUBLIC = "public"
+    ALL = "all"
 
 
 class AgentBase(BaseModel):
@@ -9,18 +21,19 @@ class AgentBase(BaseModel):
     organization_id: Optional[str] = None
 
 
-# Agent Tool Metadata
-class AgentToolMetadata(AgentBase):
+class AgentToolMetadata(BaseModel):
     id: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    user_id: Optional[str]
+    agent_id: str
     tool_name: str
     artifacts: list[dict]
 
-
-class AgentToolMetadataPublic(AgentToolMetadata):
-    user_id: Optional[str] = Field(exclude=True)
-
     class Config:
         from_attributes = True
+        use_enum_values = True
 
 
 class AgentToolMetadataPublic(AgentToolMetadata):
@@ -57,11 +70,11 @@ class Agent(AgentBase):
     description: Optional[str]
     preamble: Optional[str]
     temperature: float
-    tools: list[str]
-    tools_metadata: Optional[list[AgentToolMetadataPublic]] = None
-
-    model: str
-    deployment: str
+    tools: Optional[list[str]]
+    tools_metadata: list[AgentToolMetadataPublic]
+    deployment: Optional[str]
+    model: Optional[str]
+    is_private: Optional[bool]
 
     class Config:
         from_attributes = True
@@ -69,7 +82,6 @@ class Agent(AgentBase):
 
 
 class AgentPublic(Agent):
-    user_id: Optional[str] = Field(exclude=True)
     organization_id: Optional[str] = Field(exclude=True)
     tools_metadata: Optional[list[AgentToolMetadataPublic]] = None
 
@@ -80,10 +92,15 @@ class CreateAgentRequest(BaseModel):
     description: Optional[str] = None
     preamble: Optional[str] = None
     temperature: Optional[float] = None
-    model: str
-    deployment: str
     tools: Optional[list[str]] = None
     tools_metadata: Optional[list[CreateAgentToolMetadataRequest]] = None
+    deployment_config: Optional[dict[str, str]] = None
+    # model_id or model_name
+    model: str
+    # deployment_id or deployment_name
+    deployment: str
+    organization_id: Optional[str] = None
+    is_private: Optional[bool] = False
 
     class Config:
         from_attributes = True
@@ -94,17 +111,35 @@ class ListAgentsResponse(BaseModel):
     agents: list[Agent]
 
 
-class UpdateAgentRequest(BaseModel):
+class UpdateAgentNoDeploymentModel(BaseModel):
     name: Optional[str] = None
     version: Optional[int] = None
     description: Optional[str] = None
     preamble: Optional[str] = None
     temperature: Optional[float] = None
-    model: Optional[str] = None
-    deployment: Optional[str] = None
     tools: Optional[list[str]] = None
-    tools_metadata: Optional[list[CreateAgentToolMetadataRequest]] = None
+    organization_id: Optional[str] = None
+    is_private: Optional[bool] = None
 
+    class Config:
+        from_attributes = True
+        use_enum_values = True
+
+class UpdateAgentDB(UpdateAgentNoDeploymentModel):
+    model_id: Optional[str] = None
+    deployment_id: Optional[str] = None
+
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True,
+        "protected_namespaces": (),
+    }
+
+
+class UpdateAgentRequest(UpdateAgentNoDeploymentModel):
+    deployment: Optional[str] = None
+    model: Optional[str] = None
+    tools_metadata: Optional[list[CreateAgentToolMetadataRequest]] = None
     class Config:
         from_attributes = True
         use_enum_values = True

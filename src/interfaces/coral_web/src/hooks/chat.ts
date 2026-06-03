@@ -24,6 +24,7 @@ import {
   DEPLOYMENT_COHERE_PLATFORM,
   TOOL_PYTHON_INTERPRETER_ID,
 } from '@/constants';
+import { STRINGS } from '@/constants/strings';
 import { useChatRoutes } from '@/hooks/chatRoutes';
 import { useUpdateConversationTitle } from '@/hooks/generateTitle';
 import { StreamingChatParams, useStreamChat } from '@/hooks/streamChat';
@@ -33,6 +34,7 @@ import {
   BotState,
   ChatMessage,
   ErrorMessage,
+  FulfilledMessage,
   MessageType,
   StreamingMessage,
   createAbortedMessage,
@@ -49,7 +51,7 @@ import {
 import { replaceCodeBlockWithIframe } from '@/utils/preview';
 import { parsePythonInterpreterToolFields } from '@/utils/tools';
 
-const USER_ERROR_MESSAGE = 'Something went wrong. This has been reported. ';
+const USER_ERROR_MESSAGE = `${STRINGS.networkError} `;
 const ABORT_REASON_USER = 'USER_ABORTED';
 
 type IdToDocument = { [documentId: string]: Document };
@@ -76,7 +78,7 @@ export const useChat = (config?: { onSend?: (msg: string) => void }) => {
   const { mutateAsync: streamChat } = chatMutation;
 
   const {
-    params: { temperature, tools, model, deployment, deploymentConfig, fileIds },
+    params: { temperature, preamble, tools, model, deployment, deploymentConfig, fileIds },
   } = useParamsStore();
   const {
     conversation: { id, messages },
@@ -371,30 +373,6 @@ export const useChat = (config?: { onSend?: (msg: string) => void }) => {
               break;
             }
 
-            // TODO(@wujessica): temporarily remove support for experimental langchain multihop
-            // as it diverges from the current implementation.
-            // This event only occurs when we're using experimental langchain multihop.
-            // case StreamEvent.TOOL_RESULT: {
-            //   const data = eventData.data as StreamToolResult;
-            //   if (data.tool_name === TOOL_PYTHON_INTERPRETER_ID) {
-            //     const resultsWithOutputFile = data.result.filter((r: any) => r.output_file);
-            //     outputFiles = { ...mapOutputFiles(resultsWithOutputFile) };
-            //     saveOutputFiles(outputFiles);
-            //   }
-
-            //   setStreamingMessage({
-            //     type: MessageType.BOT,
-            //     state: BotState.TYPING,
-            //     text: botResponse,
-            //     isRAGOn,
-            //     generationId,
-            //     originalText: botResponse,
-            //     toolEvents,
-            //   });
-
-            //   break;
-            // }
-
             case StreamEvent.CITATION_GENERATION: {
               const data = eventData.data as StreamCitationGeneration;
               const newCitations = [...(data?.citations ?? [])];
@@ -466,19 +444,19 @@ export const useChat = (config?: { onSend?: (msg: string) => void }) => {
                   )
                 : botResponse;
 
-              setStreamingMessage({
+              const finalMessage: FulfilledMessage = {
                 type: MessageType.BOT,
                 state: BotState.FULFILLED,
                 generationId,
-                // TODO(@wujessica): TEMPORARY - we don't pass citations for langchain multihop right now
-                // so we need to manually apply this fix. Otherwise, this comes for free when we call
-                // `replaceTextWithCitations`.
                 text: citations.length > 0 ? finalText : fixMarkdownImagesInText(transformedText),
                 citations,
                 isRAGOn,
                 originalText: isRAGOn ? responseText : botResponse,
                 toolEvents,
-              });
+              };
+
+              setConversation({ messages: [...newMessages, finalMessage] });
+              setStreamingMessage(null);
 
               if (shouldUpdateConversationTitle(newMessages)) {
                 handleUpdateConversationTitle(conversationId);
@@ -515,12 +493,10 @@ export const useChat = (config?: { onSend?: (msg: string) => void }) => {
 
             setConversation({ messages: [...newMessages, lastMessage] });
           } else {
-            let error =
-              (e as CohereNetworkError)?.message ||
-              'Unable to generate a response since an error was encountered.';
+            let error = (e as CohereNetworkError)?.message || STRINGS.generationError;
 
             if (error === 'network error' && deployment === DEPLOYMENT_COHERE_PLATFORM) {
-              error += ' (Ensure a COHERE_API_KEY is configured correctly)';
+              error += ` (${STRINGS.networkErrorSuggestion})`;
             }
             setConversation({
               messages: [
@@ -567,6 +543,7 @@ export const useChat = (config?: { onSend?: (msg: string) => void }) => {
       tools: requestTools?.map((tool) => ({ name: tool.name })),
       file_ids: fileIds && fileIds.length > 0 ? fileIds : undefined,
       temperature,
+      preamble,
       model,
       agent_id: agentId,
       ...restOverrides,
@@ -592,10 +569,6 @@ export const useChat = (config?: { onSend?: (msg: string) => void }) => {
     };
     let newMessages: ChatMessage[] = currentMessages;
 
-    if (streamingMessage) {
-      newMessages.push(streamingMessage);
-      setStreamingMessage(null);
-    }
     newMessages = newMessages.concat({
       type: MessageType.USER,
       text: message,

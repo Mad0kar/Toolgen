@@ -1,22 +1,23 @@
 import { FetchEventSourceInit, fetchEventSource } from '@microsoft/fetch-event-source';
 
 import {
+  Body_batch_upload_file_v1_agents_batch_upload_file_post,
   Body_batch_upload_file_v1_conversations_batch_upload_file_post,
-  Body_upload_file_v1_conversations_upload_file_post,
   CancelablePromise,
   CohereChatRequest,
   CohereClientGenerated,
   CohereNetworkError,
   CohereUnauthorizedError,
-  CreateAgent,
-  CreateSnapshot,
-  CreateUser,
-  ExperimentalFeatures,
+  CreateAgentRequest,
+  CreateSnapshotRequest,
+  CreateUserV1UsersPostData,
   Fetch,
-  UpdateAgent,
-  UpdateConversation,
+  ToggleConversationPinRequest,
+  UpdateAgentRequest,
+  UpdateConversationRequest,
   UpdateDeploymentEnv,
 } from '@/cohere-client';
+import { DEFAULT_AGENT_ID } from '@/constants';
 
 import { mapToChatRequest } from './mappings';
 
@@ -53,14 +54,36 @@ export class CohereClient {
     });
   }
 
-  public uploadFile(formData: Body_upload_file_v1_conversations_upload_file_post) {
-    return this.cohereService.default.uploadFileV1ConversationsUploadFilePost({
+  public getConversationFile({
+    conversationId,
+    fileId,
+  }: {
+    conversationId: string;
+    fileId: string;
+  }) {
+    return this.cohereService.default.getFileV1ConversationsConversationIdFilesFileIdGet({
+      conversationId,
+      fileId,
+    });
+  }
+
+  public batchUploadConversationFile(
+    formData: Body_batch_upload_file_v1_conversations_batch_upload_file_post
+  ) {
+    return this.cohereService.default.batchUploadFileV1ConversationsBatchUploadFilePost({
       formData,
     });
   }
 
-  public batchUploadFile(formData: Body_batch_upload_file_v1_conversations_batch_upload_file_post) {
-    return this.cohereService.default.batchUploadFileV1ConversationsBatchUploadFilePost({
+  public getAgentFile({ agentId, fileId }: { agentId: string; fileId: string }) {
+    return this.cohereService.default.getAgentFileV1AgentsAgentIdFilesFileIdGet({
+      agentId,
+      fileId,
+    });
+  }
+
+  public batchUploadAgentFile(formData: Body_batch_upload_file_v1_agents_batch_upload_file_post) {
+    return this.cohereService.default.batchUploadFileV1AgentsBatchUploadFilePost({
       formData,
     });
   }
@@ -82,6 +105,7 @@ export class CohereClient {
     request,
     headers,
     agentId,
+    regenerate,
     signal,
     onOpen,
     onMessage,
@@ -92,6 +116,7 @@ export class CohereClient {
     headers?: Record<string, string>;
     agentId?: string;
     signal?: AbortSignal;
+    regenerate?: boolean;
     onOpen?: FetchEventSourceInit['onopen'];
     onMessage?: FetchEventSourceInit['onmessage'];
     onClose?: FetchEventSourceInit['onclose'];
@@ -102,7 +127,7 @@ export class CohereClient {
       ...chatRequest,
     });
 
-    const endpoint = `${this.getEndpoint('chat-stream')}${agentId ? `?agent_id=${agentId}` : ''}`;
+    const endpoint = this.getChatStreamEndpoint(regenerate, agentId);
     return await fetchEventSource(endpoint, {
       method: 'POST',
       headers: { ...this.getHeaders(), ...headers },
@@ -116,40 +141,12 @@ export class CohereClient {
     });
   }
 
-  public async langchainChat({
-    request,
-    headers,
-    signal,
-    onOpen,
-    onMessage,
-    onClose,
-    onError,
-  }: {
-    request: CohereChatRequest;
-    headers?: Record<string, string>;
-    signal?: AbortSignal;
-    onOpen?: FetchEventSourceInit['onopen'];
-    onMessage?: FetchEventSourceInit['onmessage'];
-    onClose?: FetchEventSourceInit['onclose'];
-    onError?: FetchEventSourceInit['onerror'];
+  public listConversations(params: {
+    offset?: number;
+    limit?: number;
+    orderBy?: string;
+    agentId?: string;
   }) {
-    const chatRequest = mapToChatRequest(request);
-    const requestBody = JSON.stringify({
-      ...chatRequest,
-    });
-    return await fetchEventSource(this.getEndpoint('langchain-chat'), {
-      method: 'POST',
-      headers: { ...this.getHeaders(), ...headers },
-      body: requestBody,
-      signal,
-      onopen: onOpen,
-      onmessage: onMessage,
-      onclose: onClose,
-      onerror: onError,
-    });
-  }
-
-  public listConversations(params: { offset?: number; limit?: number; agentId?: string }) {
     return this.cohereService.default.listConversationsV1ConversationsGet(params);
   }
 
@@ -165,15 +162,41 @@ export class CohereClient {
     });
   }
 
-  public editConversation(requestBody: UpdateConversation, conversationId: string) {
+  public editConversation(requestBody: UpdateConversationRequest, conversationId: string) {
     return this.cohereService.default.updateConversationV1ConversationsConversationIdPut({
       conversationId: conversationId,
       requestBody,
     });
   }
 
+  public toggleConversationPin(requestBody: ToggleConversationPinRequest, conversationId: string) {
+    return this.cohereService.default.toggleConversationPinV1ConversationsConversationIdTogglePinPut(
+      {
+        conversationId: conversationId,
+        requestBody,
+      }
+    );
+  }
+
+  public async synthesizeMessage(conversationId: string, messageId: string) {
+    return this.cohereService.default.synthesizeMessageV1ConversationsConversationIdSynthesizeMessageIdGet(
+      {
+        conversationId,
+        messageId,
+      }
+    ) as CancelablePromise<Blob>;
+  }
+
+  public async getExperimentalFeatures() {
+    return this.cohereService.default.listExperimentalFeaturesV1ExperimentalFeaturesGet();
+  }
+
   public listTools({ agentId }: { agentId?: string | null }) {
     return this.cohereService.default.listToolsV1ToolsGet({ agentId });
+  }
+
+  public deleteAuthTool({ toolId }: { toolId: string }) {
+    return this.cohereService.default.deleteToolAuthV1ToolAuthToolIdDelete({ toolId });
   }
 
   public listDeployments({ all }: { all?: boolean }) {
@@ -185,10 +208,6 @@ export class CohereClient {
       name: name,
       requestBody,
     });
-  }
-
-  public getExperimentalFeatures() {
-    return this.cohereService.default.listExperimentalFeaturesV1ExperimentalFeaturesGet() as CancelablePromise<ExperimentalFeatures>;
   }
 
   public login({ email, password }: { email: string; password: string }) {
@@ -208,10 +227,8 @@ export class CohereClient {
     return this.cohereService.default.getStrategiesV1AuthStrategiesGet();
   }
 
-  public createUser(requestBody: CreateUser) {
-    return this.cohereService.default.createUserV1UsersPost({
-      requestBody,
-    });
+  public createUser(requestBody: CreateUserV1UsersPostData) {
+    return this.cohereService.default.createUserV1UsersPost(requestBody);
   }
 
   public async googleSSOAuth({ code }: { code: string }) {
@@ -269,15 +286,15 @@ export class CohereClient {
     // this.cohereService.default.oidcAuthorizeV1OidcAuthGet();
   }
 
+  public getDefaultAgent() {
+    return this.cohereService.default.getAgentByIdV1AgentsAgentIdGet({ agentId: DEFAULT_AGENT_ID });
+  }
+
   public getAgent(agentId: string) {
     return this.cohereService.default.getAgentByIdV1AgentsAgentIdGet({ agentId });
   }
 
-  public getDefaultAgent() {
-    return this.cohereService.default.getDefaultAgentV1DefaultAgentGet();
-  }
-
-  public createAgent(requestBody: CreateAgent) {
+  public createAgent(requestBody: CreateAgentRequest) {
     return this.cohereService.default.createAgentV1AgentsPost({ requestBody });
   }
 
@@ -285,7 +302,7 @@ export class CohereClient {
     return this.cohereService.default.listAgentsV1AgentsGet({ offset, limit });
   }
 
-  public updateAgent(requestBody: UpdateAgent, agentId: string) {
+  public updateAgent(requestBody: UpdateAgentRequest, agentId: string) {
     return this.cohereService.default.updateAgentV1AgentsAgentIdPut({
       agentId: agentId,
       requestBody,
@@ -306,7 +323,7 @@ export class CohereClient {
     return this.cohereService.default.listSnapshotsV1SnapshotsGet();
   }
 
-  public createSnapshot(requestBody: CreateSnapshot) {
+  public createSnapshot(requestBody: CreateSnapshotRequest) {
     return this.cohereService.default.createSnapshotV1SnapshotsPost({ requestBody });
   }
 
@@ -322,8 +339,22 @@ export class CohereClient {
     return this.cohereService.default.deleteSnapshotV1SnapshotsSnapshotIdDelete({ snapshotId });
   }
 
-  private getEndpoint(endpoint: 'chat-stream' | 'langchain-chat' | 'google/auth' | 'oidc/auth') {
+  private getEndpoint(endpoint: 'chat-stream' | 'google/auth' | 'oidc/auth') {
     return `${this.hostname}/v1/${endpoint}`;
+  }
+
+  private getChatStreamEndpoint(regenerate?: boolean, agentId?: string) {
+    let endpoint = this.getEndpoint('chat-stream');
+
+    if (regenerate) {
+      endpoint += '/regenerate';
+    }
+
+    if (agentId) {
+      endpoint += `?agent_id=${agentId}`;
+    }
+
+    return endpoint;
   }
 
   private getHeaders(omitContentType = false) {
@@ -332,6 +363,7 @@ export class CohereClient {
       ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
       'User-Id': 'user-id',
       Connection: 'keep-alive',
+      'X-Date': new Date().getTime().toString(),
     };
     return headers;
   }

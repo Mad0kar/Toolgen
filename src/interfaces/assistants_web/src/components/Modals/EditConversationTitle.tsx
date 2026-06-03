@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 
-import { Button, Input, Spinner, Text } from '@/components/Shared';
-import { useEditConversation } from '@/hooks/conversation';
+import { Button, Input, Text } from '@/components/UI';
+import { useEditConversation } from '@/hooks';
 import { useConversationStore } from '@/stores';
 
 type Props = {
@@ -49,12 +49,14 @@ export const EditConversationTitle: React.FC<Props> = ({
       <Text className="mt-2 text-danger-350 first-letter:uppercase">{errorMessage}</Text>
 
       <div className="mt-6 flex items-center justify-between">
-        <Button kind="secondary" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button onClick={onConfirm} splitIcon="arrow-right" disabled={isPending}>
-          {isPending ? <Spinner /> : `Save`}
-        </Button>
+        <Button label="Cancel" kind="secondary" onClick={onClose} />
+        <Button
+          kind="cell"
+          onClick={onConfirm}
+          disabled={isPending}
+          isLoading={isPending}
+          label="Save"
+        />
       </div>
     </div>
   );

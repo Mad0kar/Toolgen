@@ -4,33 +4,30 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
-class Category(StrEnum):
-    FileLoader = "File loader"
+class ToolCategory(StrEnum):
     DataLoader = "Data loader"
+    FileLoader = "File loader"
     Function = "Function"
-
-
-class ToolInput(BaseModel):
-    pass
+    WebSearch = "Web search"
 
 
 class Tool(BaseModel):
     name: Optional[str] = ""
-    display_name: str = ""
-    description: Optional[str] = ""
     parameter_definitions: Optional[dict] = {}
 
-
-class ManagedTool(Tool):
+class ToolDefinition(Tool):
+    display_name: str = ""
+    description: str = ""
+    error_message: Optional[str] = ""
     kwargs: dict = {}
     is_visible: bool = False
     is_available: bool = False
-    error_message: Optional[str] = ""
-    category: Category = Category.DataLoader
+    category: ToolCategory = ToolCategory.DataLoader
 
     is_auth_required: bool = False  # Per user
     auth_url: Optional[str] = ""  # Per user
     token: Optional[str] = ""  # Per user
+    should_return_token: bool = False
 
     implementation: Any = Field(exclude=True)
     auth_implementation: Any = Field(default=None, exclude=True)

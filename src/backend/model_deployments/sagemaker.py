@@ -8,7 +8,7 @@ from backend.config.settings import Settings
 from backend.model_deployments.base import BaseDeployment
 from backend.model_deployments.utils import get_model_config_var
 from backend.schemas.cohere_chat import CohereChatRequest
-from backend.services.metrics import collect_metrics_chat_stream, collect_metrics_rerank
+from backend.schemas.context import Context
 
 SAGE_MAKER_ACCESS_KEY_ENV_VAR = "SAGE_MAKER_ACCESS_KEY"
 SAGE_MAKER_SECRET_KEY_ENV_VAR = "SAGE_MAKER_SECRET_KEY"
@@ -33,7 +33,7 @@ class SageMakerDeployment(BaseDeployment):
 
     DEFAULT_MODELS = ["sagemaker-command"]
 
-    sagemaker_config = Settings().deployments.sagemaker
+    sagemaker_config = Settings().get('deployments.sagemaker')
     endpoint = sagemaker_config.endpoint_name
     region_name = sagemaker_config.region_name
     aws_access_key_id = sagemaker_config.access_key
@@ -47,22 +47,22 @@ class SageMakerDeployment(BaseDeployment):
             region_name=get_model_config_var(
                 SAGE_MAKER_REGION_NAME_ENV_VAR,
                 SageMakerDeployment.region_name,
-                **kwargs
+                **kwargs,
             ),
             aws_access_key_id=get_model_config_var(
                 SAGE_MAKER_ACCESS_KEY_ENV_VAR,
                 SageMakerDeployment.aws_access_key_id,
-                **kwargs
+                **kwargs,
             ),
             aws_secret_access_key=get_model_config_var(
                 SAGE_MAKER_SECRET_KEY_ENV_VAR,
                 SageMakerDeployment.aws_secret_access_key,
-                **kwargs
+                **kwargs,
             ),
             aws_session_token=get_model_config_var(
                 SAGE_MAKER_SESSION_TOKEN_ENV_VAR,
                 SageMakerDeployment.aws_session_token,
-                **kwargs
+                **kwargs,
             ),
         )
         self.params = {
@@ -92,9 +92,8 @@ class SageMakerDeployment(BaseDeployment):
             and SageMakerDeployment.aws_session_token is not None
         )
 
-    @collect_metrics_chat_stream
     async def invoke_chat_stream(
-        self, chat_request: CohereChatRequest, **kwargs: Any
+        self, chat_request: CohereChatRequest, ctx: Context, **kwargs: Any
     ) -> AsyncGenerator[Any, Any]:
         # Create the payload for the request
         json_params = {
@@ -114,8 +113,9 @@ class SageMakerDeployment(BaseDeployment):
             stream_event["index"] = index
             yield stream_event
 
-    @collect_metrics_rerank
-    async def invoke_rerank(self, query: str, documents: List[Dict[str, Any]]) -> Any:
+    async def invoke_rerank(
+        self, query: str, documents: List[Dict[str, Any]], ctx: Context
+    ) -> Any:
         return None
 
     # This class iterates through each line of Sagemaker's response

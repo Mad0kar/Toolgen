@@ -1,4 +1,6 @@
-import os
+import logging
+import warnings
+from contextlib import asynccontextmanager
 
 from alembic.command import upgrade
 from alembic.config import Config
@@ -13,22 +15,28 @@ from backend.config.auth import (
     is_authentication_enabled,
     verify_migrate_token,
 )
-from backend.config.routers import ROUTER_DEPENDENCIES
+from backend.config.routers import ROUTER_DEPENDENCIES, RouterName
 from backend.config.settings import Settings
-from backend.routers.agent import default_agent_router
 from backend.routers.agent import router as agent_router
 from backend.routers.auth import router as auth_router
 from backend.routers.chat import router as chat_router
 from backend.routers.conversation import router as conversation_router
 from backend.routers.deployment import router as deployment_router
 from backend.routers.experimental_features import router as experimental_feature_router
+from backend.routers.model import router as model_router
+from backend.routers.organization import router as organization_router
+from backend.routers.scim import SCIMException, scim_exception_handler
+from backend.routers.scim import router as scim_router
 from backend.routers.snapshot import router as snapshot_router
 from backend.routers.tool import router as tool_router
 from backend.routers.user import router as user_router
-from backend.services.logger import LoggingMiddleware, get_logger
-from backend.services.metrics import MetricsMiddleware
+from backend.services.context import ContextMiddleware, get_context
+from backend.services.logger.middleware import LoggingMiddleware
 
-logger = get_logger()
+# Only show errors for Pydantic
+logging.getLogger('pydantic').setLevel(logging.ERROR)
+# Supress UserWarnings clogging logs
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 load_dotenv()
 
@@ -36,8 +44,17 @@ load_dotenv()
 ORIGINS = ["*"]
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Retrieves all the Auth provider endpoints if authentication is enabled.
+    if is_authentication_enabled():
+        await get_auth_strategy_endpoints()
+    yield
+    # Shutdown logic
+
+
 def create_app():
-    app = FastAPI()
+    app = FastAPI(lifespan=lifespan)
 
     routers = [
         auth_router,
@@ -48,8 +65,10 @@ def create_app():
         deployment_router,
         experimental_feature_router,
         agent_router,
-        default_agent_router,
         snapshot_router,
+        organization_router,
+        model_router,
+        scim_router,
     ]
 
     # Dynamically set router dependencies
@@ -57,12 +76,12 @@ def create_app():
     dependencies_type = "default"
     if is_authentication_enabled():
         # Required to save temporary OAuth state in session
-        auth_secret = Settings().auth.secret_key
+        auth_secret = Settings().get('auth.secret_key')
         app.add_middleware(SessionMiddleware, secret_key=auth_secret)
         dependencies_type = "auth"
     for router in routers:
         if getattr(router, "name", "") in ROUTER_DEPENDENCIES.keys():
-            router_name = router.name
+            router_name = RouterName(getattr(router, "name"))
             dependencies = ROUTER_DEPENDENCIES[router_name][dependencies_type]
             app.include_router(router, dependencies=dependencies)
         else:
@@ -77,18 +96,25 @@ def create_app():
         allow_headers=["*"],
     )
     app.add_middleware(LoggingMiddleware)
-    app.add_middleware(MetricsMiddleware)
+    app.add_middleware(ContextMiddleware)  # This should be the first middleware
+    app.add_exception_handler(SCIMException, scim_exception_handler)  # pyright: ignore
 
     return app
 
 
 app = create_app()
 
-
 @app.exception_handler(Exception)
 async def validation_exception_handler(request: Request, exc: Exception):
-    logger.info(
-        f"Error occurred: {exc!r} during request: {request.method}, {request.url}"
+    ctx = get_context(request)
+    logger = ctx.get_logger()
+
+    logger.exception(
+        event="Unhandled exception",
+        error=str(exc),
+        method=request.method,
+        url=request.url,
+        ctx=ctx,
     )
 
     return JSONResponse(
@@ -100,15 +126,6 @@ async def validation_exception_handler(request: Request, exc: Exception):
             )
         },
     )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """
-    Retrieves all the Auth provider endpoints if authentication is enabled.
-    """
-    if is_authentication_enabled():
-        await get_auth_strategy_endpoints()
 
 
 @app.get("/health")

@@ -1,12 +1,13 @@
+'use client';
+
 import React, { PropsWithChildren, createContext, useState } from 'react';
 
-import { Modal } from '@/components/Shared';
+import { Modal } from '@/components/UI';
 
-type ModalKind = React.ComponentProps<typeof Modal>['kind'];
 interface OpenParams {
-  title?: React.ReactNode;
+  title?: string;
   content?: React.ReactNode | React.FC;
-  kind?: ModalKind;
+  dialogPaddingClassName?: string;
 }
 
 export type OpenFunction = (params: OpenParams) => void;
@@ -14,11 +15,11 @@ export type CloseFunction = () => void;
 
 interface Context {
   isOpen: boolean;
-  title?: React.ReactNode;
+  title?: string;
   open: OpenFunction;
   close: CloseFunction;
   content: React.ReactNode | React.FC;
-  kind?: ModalKind;
+  dialogPaddingClassName?: string;
 }
 
 /**
@@ -26,22 +27,24 @@ interface Context {
  */
 const useModal = (): Context => {
   const [isOpen, setIsOpen] = useState(false);
-  const [title, setTitle] = useState<React.ReactNode | undefined>(undefined);
+  const [title, setTitle] = useState<string | undefined>(undefined);
   const [content, setContent] = useState<React.ReactNode | React.FC>(undefined);
-  const [kind, setModalKind] = useState<ModalKind>('default');
+  const [dialogPaddingClassName, setDialogPaddingClassName] = useState<string | undefined>(
+    undefined
+  );
 
-  const open = ({ title, content, kind }: OpenParams) => {
+  const open = ({ title, content, dialogPaddingClassName }: OpenParams) => {
     setIsOpen(true);
-    setModalKind(kind);
     setTitle(title);
     setContent(content);
+    setDialogPaddingClassName(dialogPaddingClassName);
   };
 
   const close = () => {
     setIsOpen(false);
   };
 
-  return { isOpen, open, close, content, title, kind };
+  return { isOpen, open, close, content, title, dialogPaddingClassName };
 };
 
 /**
@@ -59,15 +62,21 @@ const ModalContext = createContext<Context>({
   open: () => {},
   close: () => {},
   content: undefined,
+  dialogPaddingClassName: undefined,
 });
 
 const ModalProvider: React.FC<PropsWithChildren> = ({ children }) => {
-  const { isOpen, title, open, close, content, kind } = useModal();
+  const { isOpen, title, open, close, content, dialogPaddingClassName } = useModal();
 
   return (
-    <ModalContext.Provider value={{ isOpen, title, open, close, content }}>
+    <ModalContext.Provider value={{ isOpen, title, open, close, content, dialogPaddingClassName }}>
       <>{children}</>
-      <Modal title={title} isOpen={isOpen} onClose={close} kind={kind}>
+      <Modal
+        title={title}
+        isOpen={isOpen}
+        onClose={close}
+        dialogPaddingClassName={dialogPaddingClassName}
+      >
         <>{content}</>
       </Modal>
     </ModalContext.Provider>

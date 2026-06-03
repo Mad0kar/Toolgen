@@ -3,9 +3,9 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SubmitHandler, useForm } from 'react-hook-form';
 
-import { AuthLink } from '@/components/AuthLink';
-import { Button, Input, Text } from '@/components/Shared';
-import { useSession } from '@/hooks/session';
+import { AuthLink } from '@/components/Auth';
+import { Button, Input, Text } from '@/components/UI';
+import { useSession } from '@/hooks';
 import { getQueryString, simpleEmailValidation } from '@/utils';
 
 interface Credentials {
@@ -50,7 +50,7 @@ const Register: React.FC = () => {
         Create your account
       </Text>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-10 flex w-full flex-col">
+      <form onSubmit={handleSubmit(onSubmit)} className="mt-10 flex w-full flex-col gap-4">
         <Input
           className="w-full"
           label="name"
@@ -97,18 +97,23 @@ const Register: React.FC = () => {
         <Button
           disabled={registerStatus === 'pending' || !formState.isValid}
           label={registerStatus === 'pending' ? 'Logging in...' : 'Sign up'}
-          type="submit"
-          className="mt-10 w-full self-center md:w-fit"
-          splitIcon="arrow-right"
+          buttonType="submit"
+          theme="evolved-green"
+          kind="cell"
+          iconPosition="end"
+          className="w-full self-center md:w-fit"
         />
       </form>
 
-      <Text as="div" className="mt-10 flex w-full items-center justify-between text-volcanic-400">
+      <Text
+        as="div"
+        className="mt-10 flex w-full items-center justify-center gap-2 text-volcanic-400 dark:text-marble-950"
+      >
         Already have an account?
         <AuthLink
           redirect={redirect !== '/' ? redirect : undefined}
           action="login"
-          className="text-green-250 no-underline"
+          theme="evolved-green"
         />
       </Text>
     </div>

@@ -1,45 +1,63 @@
 import { StateCreator } from 'zustand';
 
-const INITIAL_STATE: Required<State> = {
-  isConfigDrawerOpen: false,
-  activeConfigDrawerTab: '',
-  isConvListPanelOpen: true,
-  isMobileConvListPanelOpen: false,
+const INITIAL_STATE = {
+  disabledAssistantKnowledge: [],
+  isLeftPanelOpen: true,
+  isRightPanelOpen: false,
+  showSteps: true,
+  isHotKeysDialogOpen: false,
 };
 
 type State = {
-  isConfigDrawerOpen: boolean;
-  activeConfigDrawerTab: string;
-  isConvListPanelOpen: boolean;
-  isMobileConvListPanelOpen: boolean;
+  disabledAssistantKnowledge: string[];
+  isLeftPanelOpen: boolean;
+  isRightPanelOpen: boolean;
+  showSteps: boolean;
+  isHotKeysDialogOpen: boolean;
 };
 
 type Actions = {
-  setSettings: (settings: Partial<State>) => void;
-  setIsConvListPanelOpen: (isOpen: boolean) => void;
+  setUseAssistantKnowledge: (useKnowledge: boolean, agentId: string) => void;
+  setLeftPanelOpen: (isOpen: boolean) => void;
+  setRightPanelOpen: (isOpen: boolean) => void;
+  setShowSteps: (showSteps: boolean) => void;
+  setIsHotKeysDialogOpen: (isOpen: boolean) => void;
 };
 
-export type SettingsStore = {
-  settings: State;
-} & Actions;
+export type SettingsStore = State & Actions;
 
 export const createSettingsSlice: StateCreator<SettingsStore, [], [], SettingsStore> = (set) => ({
-  setSettings(settings) {
+  setUseAssistantKnowledge(useKnowledge: boolean, agentId: string) {
     set((state) => ({
-      settings: {
-        ...state.settings,
-        ...settings,
-      },
+      ...state,
+      disabledAssistantKnowledge: useKnowledge
+        ? state.disabledAssistantKnowledge.filter((id) => id !== agentId)
+        : [...state.disabledAssistantKnowledge, agentId],
     }));
   },
-  setIsConvListPanelOpen(isOpen) {
+  setLeftPanelOpen(isOpen: boolean) {
     set((state) => ({
-      settings: {
-        ...state.settings,
-        isConvListPanelOpen: isOpen,
-        isMobileConvListPanelOpen: isOpen,
-      },
+      ...state,
+      isLeftPanelOpen: isOpen,
     }));
   },
-  settings: INITIAL_STATE,
+  setRightPanelOpen(isOpen: boolean) {
+    set((state) => ({
+      ...state,
+      isRightPanelOpen: isOpen,
+    }));
+  },
+  setShowSteps(showSteps: boolean) {
+    set((state) => ({
+      ...state,
+      showSteps: showSteps,
+    }));
+  },
+  setIsHotKeysDialogOpen(isOpen: boolean) {
+    set((state) => ({
+      ...state,
+      isHotKeysDialogOpen: isOpen,
+    }));
+  },
+  ...INITIAL_STATE,
 });

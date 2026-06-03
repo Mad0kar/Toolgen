@@ -1,4 +1,3 @@
-import logging
 from enum import StrEnum
 
 from backend.config.settings import Settings
@@ -16,6 +15,9 @@ from backend.model_deployments.cohere_platform import COHERE_ENV_VARS
 from backend.model_deployments.sagemaker import SAGE_MAKER_ENV_VARS
 from backend.model_deployments.single_container import SC_ENV_VARS
 from backend.schemas.deployment import Deployment
+from backend.services.logger.utils import LoggerFactory
+
+logger = LoggerFactory().get_logger()
 
 
 class ModelDeploymentName(StrEnum):
@@ -26,7 +28,7 @@ class ModelDeploymentName(StrEnum):
     SingleContainer = "Single Container"
 
 
-use_community_features = Settings().feature_flags.use_community_features
+use_community_features = Settings().get('feature_flags.use_community_features')
 
 # TODO names in the map below should not be the display names but ids
 ALL_MODEL_DEPLOYMENTS = {
@@ -84,16 +86,16 @@ def get_available_deployments() -> dict[ModelDeploymentName, Deployment]:
             model_deployments.update(COMMUNITY_DEPLOYMENTS_SETUP)
             return model_deployments
         except ImportError:
-            logging.warning(
-                "Community deployments are not available. They can still be set up."
+            logger.warning(
+                event="[Deployments] No available community deployments have been configured"
             )
 
-    deployments = Settings().deployments.enabled_deployments
+    deployments = Settings().get('deployments.enabled_deployments')
     if deployments is not None and len(deployments) > 0:
         return {
             key: value
             for key, value in ALL_MODEL_DEPLOYMENTS.items()
-            if value.id in Settings().deployments.enabled_deployments
+            if value.id in Settings().get('deployments.enabled_deployments')
         }
 
     return ALL_MODEL_DEPLOYMENTS
@@ -101,12 +103,13 @@ def get_available_deployments() -> dict[ModelDeploymentName, Deployment]:
 
 def get_default_deployment(**kwargs) -> BaseDeployment:
     # Fallback to the first available deployment
+    fallback = None
     for deployment in AVAILABLE_MODEL_DEPLOYMENTS.values():
         if deployment.is_available:
             fallback = deployment.deployment_class(**kwargs)
             break
 
-    default = Settings().deployments.default_deployment
+    default = Settings().get('deployments.default_deployment')
     if default:
         return next(
             (
@@ -118,6 +121,20 @@ def get_default_deployment(**kwargs) -> BaseDeployment:
         )
     else:
         return fallback
+
+
+def find_config_by_deployment_id(deployment_id: str) -> Deployment:
+    for deployment in AVAILABLE_MODEL_DEPLOYMENTS.values():
+        if deployment.id == deployment_id:
+            return deployment
+    return None
+
+
+def find_config_by_deployment_name(deployment_name: str) -> Deployment:
+    for deployment in AVAILABLE_MODEL_DEPLOYMENTS.values():
+        if deployment.name == deployment_name:
+            return deployment
+    return None
 
 
 AVAILABLE_MODEL_DEPLOYMENTS = get_available_deployments()
