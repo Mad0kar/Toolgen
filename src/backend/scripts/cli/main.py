@@ -2,13 +2,13 @@ import argparse
 
 from dotenv import dotenv_values
 
-from backend.cli.constants import (
+from backend.scripts.cli.constants import (
     COMMUNITY_TOOLS,
     CONFIG_FILE_PATH,
     SECRETS_FILE_PATH,
     TOOLS,
 )
-from backend.cli.prompts import (
+from backend.scripts.cli.prompts import (
     PROMPTS,
     community_tools_prompt,
     deployment_prompt,
@@ -19,13 +19,13 @@ from backend.cli.prompts import (
     tool_prompt,
     update_variable_prompt,
 )
-from backend.cli.setters import (
+from backend.scripts.cli.setters import (
     delete_config_folders,
     write_config_files,
     write_env_file,
     write_template_config_files,
 )
-from backend.cli.utils import (
+from backend.scripts.cli.utils import (
     process_existing_yaml_config,
     show_examples,
     show_welcome_message,
@@ -65,14 +65,8 @@ def start():
     from backend.config.deployments import (
         AVAILABLE_MODEL_DEPLOYMENTS as MANAGED_DEPLOYMENTS_SETUP,
     )
-    from community.config.deployments import (
-        AVAILABLE_MODEL_DEPLOYMENTS as COMMUNITY_DEPLOYMENTS_SETUP,
-    )
 
     all_deployments = MANAGED_DEPLOYMENTS_SETUP.copy()
-    if use_community_features:
-        all_deployments.update(COMMUNITY_DEPLOYMENTS_SETUP)
-
     selected_deployments = select_deployments_prompt(all_deployments, secrets)
 
     for deployment in selected_deployments:

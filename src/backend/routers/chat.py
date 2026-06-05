@@ -1,6 +1,6 @@
 from typing import Any, Generator
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
 from backend.chat.custom.custom import CustomChat
@@ -23,28 +23,19 @@ from backend.services.request_validators import validate_deployment_header
 
 router = APIRouter(
     prefix="/v1",
+    tags=[RouterName.CHAT],
 )
 router.name = RouterName.CHAT
 
 
 @router.post("/chat-stream", dependencies=[Depends(validate_deployment_header)])
 async def chat_stream(
-    session: DBSessionDep,
     chat_request: CohereChatRequest,
-    request: Request,
+    session: DBSessionDep,
     ctx: Context = Depends(get_context),
 ) -> Generator[ChatResponseEvent, Any, None]:
     """
     Stream chat endpoint to handle user messages and return chatbot responses.
-
-    Args:
-        session (DBSessionDep): Database session.
-        chat_request (CohereChatRequest): Chat request data.
-        request (Request): Request object.
-        ctx (Context): Context object.
-
-    Returns:
-        EventSourceResponse: Server-sent event response with chatbot responses.
     """
     ctx.with_model(chat_request.model)
     agent_id = chat_request.agent_id
@@ -58,7 +49,7 @@ async def chat_stream(
         managed_tools,
         next_message_position,
         ctx,
-    ) = process_chat(session, chat_request, request, ctx)
+    ) = process_chat(session, chat_request, ctx)
 
     return EventSourceResponse(
         generate_chat_stream(
@@ -84,22 +75,12 @@ async def chat_stream(
 
 @router.post("/chat-stream/regenerate", dependencies=[Depends(validate_deployment_header)])
 async def regenerate_chat_stream(
-    session: DBSessionDep,
     chat_request: CohereChatRequest,
-    request: Request,
+    session: DBSessionDep,
     ctx: Context = Depends(get_context),
 ) -> EventSourceResponse:
     """
     Endpoint to regenerate stream chat response for the last user message.
-
-    Args:
-        session (DBSessionDep): Database session.
-        chat_request (CohereChatRequest): Chat request data.
-        request (Request): Request object.
-        ctx (Context): Context object.
-
-    Returns:
-        EventSourceResponse: Server-sent event response with chatbot responses.
     """
     ctx.with_model(chat_request.model)
 
@@ -127,7 +108,7 @@ async def regenerate_chat_stream(
         previous_response_message_ids,
         managed_tools,
         ctx,
-    ) = process_message_regeneration(session, chat_request, request, ctx)
+    ) = process_message_regeneration(session, chat_request, ctx)
 
     return EventSourceResponse(
         generate_chat_stream(
@@ -153,22 +134,12 @@ async def regenerate_chat_stream(
 
 @router.post("/chat", dependencies=[Depends(validate_deployment_header)])
 async def chat(
-    session: DBSessionDep,
     chat_request: CohereChatRequest,
-    request: Request,
+    session: DBSessionDep,
     ctx: Context = Depends(get_context),
 ) -> NonStreamedChatResponse:
     """
     Chat endpoint to handle user messages and return chatbot responses.
-
-    Args:
-        chat_request (CohereChatRequest): Chat request data.
-        session (DBSessionDep): Database session.
-        request (Request): Request object.
-        ctx (Context): Context object.
-
-    Returns:
-        NonStreamedChatResponse: Chatbot response.
     """
     ctx.with_model(chat_request.model)
     agent_id = chat_request.agent_id
@@ -197,7 +168,7 @@ async def chat(
         managed_tools,
         next_message_position,
         ctx,
-    ) = process_chat(session, chat_request, request, ctx)
+    ) = process_chat(session, chat_request, ctx)
 
     response = await generate_chat_response(
         session,

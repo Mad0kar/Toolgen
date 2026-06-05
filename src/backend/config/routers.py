@@ -22,10 +22,10 @@ class RouterName(StrEnum):
     CONVERSATION = "conversation"
     DEPLOYMENT = "deployment"
     EXPERIMENTAL_FEATURES = "experimental_features"
+    ORGANIZATION = "organization"
     TOOL = "tool"
     USER = "user"
     AGENT = "agent"
-    DEFAULT_AGENT = "default_agent"
     SNAPSHOT = "snapshot"
     MODEL = "model"
     SCIM = "scim"
@@ -81,6 +81,17 @@ ROUTER_DEPENDENCIES = {
         ],
     },
     RouterName.EXPERIMENTAL_FEATURES: {
+        "default": [
+            Depends(get_session),
+            Depends(validate_organization_header),
+        ],
+        "auth": [
+            Depends(get_session),
+            Depends(validate_authorization),
+            Depends(validate_organization_header),
+        ],
+    },
+    RouterName.ORGANIZATION: {
         "default": [
             Depends(get_session),
             Depends(validate_organization_header),

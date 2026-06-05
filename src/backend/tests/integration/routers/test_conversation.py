@@ -5,12 +5,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
-from backend.config.deployments import ModelDeploymentName
 from backend.database_models import Conversation
+from backend.model_deployments.cohere_platform import CohereDeployment
 from backend.schemas.user import User
 from backend.tests.unit.factories import get_factory
 
 
+@pytest.mark.skipif(
+    os.environ.get("COHERE_API_KEY") is None,
+    reason="Cohere API key not set, skipping test",
+)
 def test_search_conversations(
     session_client: TestClient,
     session: Session,
@@ -54,7 +58,7 @@ def test_search_conversations_with_reranking(
         "/v1/conversations:search",
         headers={
             "User-Id": user.id,
-            "Deployment-Name": ModelDeploymentName.CoherePlatform,
+            "Deployment-Name": CohereDeployment.name(),
         },
         params={"query": "color"},
     )
@@ -64,7 +68,10 @@ def test_search_conversations_with_reranking(
     assert len(results) == 1
     assert results[0]["id"] == conversation2.id
 
-
+@pytest.mark.skipif(
+    os.environ.get("COHERE_API_KEY") is None,
+    reason="Cohere API key not set, skipping test",
+)
 def test_search_conversations_no_conversations(
     session_client: TestClient,
     session: Session,

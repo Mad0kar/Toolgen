@@ -1,6 +1,6 @@
 import inquirer
 
-from backend.cli.constants import (
+from backend.scripts.cli.constants import (
     DATABASE_URL_DEFAULT,
     FRONTEND_HOSTNAME_DEFAULT,
     NEXT_PUBLIC_API_HOSTNAME_DEFAULT,
@@ -8,8 +8,8 @@ from backend.cli.constants import (
     BuildTarget,
     bcolors,
 )
-from backend.cli.setters import write_env_file
-from backend.cli.utils import print_styled
+from backend.scripts.cli.setters import write_env_file
+from backend.scripts.cli.utils import print_styled
 
 
 def overwrite_config_prompt():
@@ -65,7 +65,7 @@ def core_env_var_prompt(secrets):
 
 
 def deployment_prompt(secrets, configs):
-    for secret in configs.env_vars:
+    for secret in configs.env_vars():
         value = secrets.get(secret)
 
         if not value:
@@ -149,7 +149,7 @@ def select_deployments_prompt(deployments, _):
 
     deployments = inquirer.checkbox(
         "Select the model deployments you want to set up",
-        choices=[deployment.value for deployment in deployments.keys()],
+        choices=[deployment for deployment in deployments.keys()],
         default=["Cohere Platform"],
         validate=lambda _, x: len(x) > 0,
     )

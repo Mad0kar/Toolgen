@@ -17,6 +17,7 @@ from backend.config.auth import (
 )
 from backend.config.routers import ROUTER_DEPENDENCIES, RouterName
 from backend.config.settings import Settings
+from backend.exceptions import DeploymentNotFoundError
 from backend.routers.agent import router as agent_router
 from backend.routers.auth import router as auth_router
 from backend.routers.chat import router as chat_router
@@ -44,6 +45,9 @@ load_dotenv()
 ORIGINS = ["*"]
 
 
+_RELEASE_VERSION = "v1.1.5"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Retrieves all the Auth provider endpoints if authentication is enabled.
@@ -53,8 +57,13 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
 
 
-def create_app():
-    app = FastAPI(lifespan=lifespan)
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Cohere Toolkit API",
+        description="This is the API for the Open Source Cohere Toolkit",
+        version=_RELEASE_VERSION,
+        lifespan=lifespan,
+    )
 
     routers = [
         auth_router,
@@ -128,6 +137,20 @@ async def validation_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.exception_handler(DeploymentNotFoundError)
+async def deployment_not_found_handler(request: Request, exc: DeploymentNotFoundError):
+    ctx = get_context(request)
+    logger = ctx.get_logger()
+    logger.error(
+        event="Deployment not found",
+        deployment_id=exc.deployment_id,
+    )
+    return JSONResponse(
+        status_code=404,
+        content={"detail": str(exc)},
+    )
+
+
 @app.get("/health")
 async def health():
     """
@@ -136,7 +159,11 @@ async def health():
     return {"status": "OK"}
 
 
-@app.post("/migrate", dependencies=[Depends(verify_migrate_token)])
+@app.post(
+    "/migrate",
+    dependencies=[Depends(verify_migrate_token)],
+    include_in_schema=False,
+)
 async def apply_migrations():
     """
     Applies Alembic migrations - useful for serverless applications
