@@ -15,9 +15,10 @@ from backend.config.auth import (
     is_authentication_enabled,
     verify_migrate_token,
 )
-from backend.config.routers import ROUTER_DEPENDENCIES, RouterName
+from backend.config.routers import ROUTER_DEPENDENCIES, DependencyType, RouterName
 from backend.config.settings import Settings
 from backend.exceptions import DeploymentNotFoundError
+from backend.metrics import RequestMetricsMiddleware
 from backend.routers.agent import router as agent_router
 from backend.routers.auth import router as auth_router
 from backend.routers.chat import router as chat_router
@@ -33,6 +34,7 @@ from backend.routers.tool import router as tool_router
 from backend.routers.user import router as user_router
 from backend.services.context import ContextMiddleware, get_context
 from backend.services.logger.middleware import LoggingMiddleware
+from backend.services.logger.utils import LoggerFactory
 
 # Only show errors for Pydantic
 logging.getLogger('pydantic').setLevel(logging.ERROR)
@@ -45,7 +47,7 @@ load_dotenv()
 ORIGINS = ["*"]
 
 
-_RELEASE_VERSION = "v1.1.5"
+_RELEASE_VERSION = "v1.1.7"
 
 
 @asynccontextmanager
@@ -82,12 +84,13 @@ def create_app() -> FastAPI:
 
     # Dynamically set router dependencies
     # These values must be set in config/routers.py
-    dependencies_type = "default"
+    dependencies_type = DependencyType.DEFAULT
+    settings = Settings()
     if is_authentication_enabled():
         # Required to save temporary OAuth state in session
-        auth_secret = Settings().get('auth.secret_key')
+        auth_secret = settings.get('auth.secret_key')
         app.add_middleware(SessionMiddleware, secret_key=auth_secret)
-        dependencies_type = "auth"
+        dependencies_type = DependencyType.AUTH
     for router in routers:
         if getattr(router, "name", "") in ROUTER_DEPENDENCIES.keys():
             router_name = RouterName(getattr(router, "name"))
@@ -105,6 +108,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(LoggingMiddleware)
+    if settings.get("metrics.enabled"):
+        logger = LoggerFactory().get_logger()
+        logger.info(event="Metrics enabled")
+        app.add_middleware(RequestMetricsMiddleware)
     app.add_middleware(ContextMiddleware)  # This should be the first middleware
     app.add_exception_handler(SCIMException, scim_exception_handler)  # pyright: ignore
 
@@ -112,6 +119,7 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
 
 @app.exception_handler(Exception)
 async def validation_exception_handler(request: Request, exc: Exception):

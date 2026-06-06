@@ -1,7 +1,7 @@
 import datetime
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import Any, Dict, List
+from typing import Any
 
 import requests
 from fastapi import Request
@@ -11,12 +11,13 @@ from backend.config.settings import Settings
 from backend.crud import tool_auth as tool_auth_crud
 from backend.database_models.database import DBSessionDep
 from backend.database_models.tool_auth import ToolAuth
+from backend.metrics import track_tool_call_time
+from backend.schemas.context import Context
 from backend.schemas.tool import ToolDefinition
 from backend.services.logger.utils import LoggerFactory
 from backend.tools.utils.tools_checkers import check_tool_parameters
 
 logger = LoggerFactory().get_logger()
-
 
 class ToolErrorCode(StrEnum):
     HTTP_ERROR = "http_error"
@@ -46,10 +47,14 @@ class ParametersValidationMeta(type):
     def __new__(cls, name, bases, class_dict):
         for attr_name, attr_value in class_dict.items():
             if callable(attr_value) and attr_name == "call":
-                # Decorate methods with the parameter checker
-                class_dict[attr_name] = check_tool_parameters(
-                    lambda self: self.__class__.get_tool_definition()
-                )(attr_value)
+                metrics_enabled = Settings().get('metrics.enabled')
+                if metrics_enabled:
+                    # Decorate methods with the metrics collector and parameter checker
+                    class_dict[attr_name] = track_tool_call_time()(
+                        check_tool_parameters(lambda self: self.__class__.get_tool_definition())(attr_value))
+                else:
+                    # Decorate methods with the parameter checker
+                    class_dict[attr_name] = check_tool_parameters(lambda self: self.__class__.get_tool_definition())(attr_value)
         return super().__new__(cls, name, bases, class_dict)
 
 
@@ -157,19 +162,22 @@ class BaseTool(metaclass=ParametersValidationMeta):
         ...
 
     @classmethod
-    def get_tool_error(cls, details: str, text: str = "Error calling tool", error_type: ToolErrorCode = ToolErrorCode.OTHER):
+    def get_tool_error(
+        cls, details: str, text: str = "Error calling tool", error_type: ToolErrorCode = ToolErrorCode.OTHER,
+    ) -> list[dict[str, str]]:
         tool_error = ToolError(text=f"{text} {cls.ID}.", details=details, type=error_type).model_dump()
         logger.error(event=f"Error calling tool {cls.ID}", error=tool_error)
         return [tool_error]
 
     @classmethod
-    def get_no_results_error(cls):
-        return ToolError(text="No results found.", details="No results found for the given params.")
+    def get_no_results_error(cls) -> list[dict[str, str]]:
+        tool_error = ToolError(text="No results found.", details="No results found for the given params.").model_dump()
+        return [tool_error]
 
     @abstractmethod
     async def call(
-            self, parameters: dict, ctx: Any, **kwargs: Any
-    ) -> List[Dict[str, Any]]:
+        self, parameters: dict, ctx: Context, **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         ...
 
     @classmethod
@@ -247,7 +255,7 @@ class BaseToolAuthentication(ABC):
     @abstractmethod
     def retrieve_auth_token(
             self, request: Request, session: DBSessionDep, user_id: str
-    ) -> str:
+    ) -> str|None:
         ...
 
     def get_token(self, session: DBSessionDep, user_id: str) -> str:

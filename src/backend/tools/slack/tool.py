@@ -1,7 +1,8 @@
-from typing import Any, Dict, List
+from typing import Any
 
 from backend.config.settings import Settings
 from backend.crud import tool_auth as tool_auth_crud
+from backend.schemas.context import Context
 from backend.schemas.tool import ToolCategory, ToolDefinition
 from backend.services.logger.utils import LoggerFactory
 from backend.tools.base import BaseTool
@@ -41,10 +42,11 @@ class SlackTool(BaseTool):
             is_visible=True,
             is_available=cls.is_available(),
             auth_implementation=SlackAuth,
+            should_return_token=False,
             error_message=cls.generate_error_message(),
             category=ToolCategory.DataLoader,
             description="Returns a list of relevant document snippets from slack.",
-        )
+        ) # type: ignore
 
     @classmethod
     def _handle_tool_specific_errors(cls, error: Exception, **kwargs: Any) -> None:
@@ -62,7 +64,9 @@ class SlackTool(BaseTool):
         )
         raise Exception(message)
 
-    async def call(self, parameters: dict, ctx: Any, **kwargs: Any) -> List[Dict[str, Any]]:
+    async def call(
+        self, parameters: dict, ctx: Context, **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         user_id = kwargs.get("user_id", "")
         query = parameters.get("query", "")
 

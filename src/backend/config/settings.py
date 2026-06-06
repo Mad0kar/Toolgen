@@ -191,10 +191,34 @@ class SlackSettings(BaseSettings, BaseModel):
         default=None,
         validation_alias=AliasChoices("SLACK_CLIENT_SECRET", "client_secret"),
     )
-    user_scopes: Optional[str] = Field(
+    user_scopes: Optional[List[str]] = Field(
         default=None,
         validation_alias=AliasChoices(
             "SLACK_USER_SCOPES", "scopes"
+        ),
+    )
+
+
+class GithubSettings(BaseSettings, BaseModel):
+    model_config = SETTINGS_CONFIG
+    client_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GITHUB_CLIENT_ID", "client_id"),
+    )
+    client_secret: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GITHUB_CLIENT_SECRET", "client_secret"),
+    )
+    user_scopes: Optional[List[str]] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GITHUB_USER_SCOPES", "user_scopes"
+        ),
+    )
+    default_repos: Optional[List[str]] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GITHUB_DEFAULT_REPOS", "default_repos"
         ),
     )
 
@@ -247,6 +271,22 @@ class HybridWebSearchSettings(BaseSettings, BaseModel):
     site_filters: Optional[List[str]] = []
 
 
+class SharepointSettings(BaseSettings, BaseModel):
+    model_config = SETTINGS_CONFIG
+    tenant_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("SHAREPOINT_TENANT_ID", "tenant_id"),
+    )
+    client_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("SHAREPOINT_CLIENT_ID", "client_id"),
+    )
+    client_secret: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("SHAREPOINT_CLIENT_SECRET", "client_secret"),
+    )
+
+
 class ToolSettings(BaseSettings, BaseModel):
     model_config = SETTINGS_CONFIG
 
@@ -272,8 +312,14 @@ class ToolSettings(BaseSettings, BaseModel):
     slack: Optional[SlackSettings] = Field(
         default=SlackSettings()
     )
+    github: Optional[GithubSettings] = Field(
+        default=GithubSettings()
+    )
     gmail: Optional[GmailSettings] = Field(
         default=GmailSettings()
+    )
+    sharepoint: Optional[SharepointSettings] = Field(
+        default=SharepointSettings()
     )
     use_tools_preamble: Optional[bool] = Field(
         default=False,
@@ -404,6 +450,13 @@ class LoggerSettings(BaseSettings, BaseModel):
     )
 
 
+class MetricsSettings(BaseSettings, BaseModel):
+    model_config = SETTINGS_CONFIG
+    enabled: Optional[bool] = Field(
+        default=False, validation_alias=AliasChoices("METRICS_ENABLED", "enabled")
+    )
+
+
 class Settings(BaseSettings):
     """
     Settings class used to grab environment variables from configuration.yaml
@@ -421,6 +474,7 @@ class Settings(BaseSettings):
     google_cloud: Optional[GoogleCloudSettings] = Field(default=GoogleCloudSettings())
     deployments: Optional[DeploymentSettings] = Field(default=DeploymentSettings())
     logger: Optional[LoggerSettings] = Field(default=LoggerSettings())
+    metrics: Optional[MetricsSettings] = Field(default=MetricsSettings())
 
     def get(self, path: str) -> Any:
         keys = path.split('.')
