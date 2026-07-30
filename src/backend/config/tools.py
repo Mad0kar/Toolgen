@@ -1,5 +1,4 @@
 from enum import Enum
-
 from backend.config.settings import Settings
 from backend.schemas.tool import ToolDefinition
 from backend.services.logger.utils import LoggerFactory
@@ -20,6 +19,7 @@ from backend.tools import (
     WebScrapeTool,
 )
 from backend.tools.github.tool import GithubTool
+from backend.tools.jira import JiraTool
 
 logger = LoggerFactory().get_logger()
 
@@ -42,6 +42,7 @@ class Tool(Enum):
     Gmail = GmailTool
     Github = GithubTool
     Sharepoint = SharepointTool
+    Jira_Create_Issue = JiraTool
 
 
 def get_available_tools() -> dict[str, ToolDefinition]:
@@ -52,7 +53,7 @@ def get_available_tools() -> dict[str, ToolDefinition]:
         tool.ID: tool.get_tool_definition() for tool in tool_classes
     }
 
-    # Handle adding Community-implemented tools
+    # Handle adding Community-implemented tools if enabled
     use_community_tools = Settings().get('feature_flags.use_community_features')
     if use_community_tools:
         try:

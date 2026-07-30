@@ -1,79 +1,280 @@
-![](/docs/assets/banner.png)
+![ToolGen banner](docs/assets/banner.png)
 
-# ToolGen Toolkit
+# ToolGen — A Self-Hosted, Agentic RAG Platform (Personal Learning Clone of Cohere Toolkit)
 
-Toolkit is a deployable all-in-one RAG application that enables users to quickly build their LLM-based product.
+> **📌 Attribution & purpose (read this first):** ToolGen is my personal clone of [Cohere's open-source `cohere-toolkit`](https://github.com/cohere-ai/cohere-toolkit) (MIT licensed). I cloned, deployed, and did a deep line-by-line study of the codebase to learn how a production-grade, multi-tenant, agentic RAG application is actually built — request routing, an LLM tool-calling loop, retrieval + reranking, a pluggable model/tool architecture, auth, and multi-cloud deployment. All original design and code credit belongs to Cohere and its contributors (see `CODEOWNERS`). I did **not** design this system from scratch — I use this repo, and this README, as a study artifact and as evidence that I can read, run, and reason about a large real-world codebase. Any customizations I made on top of the base repo are called out explicitly in **[My Contributions](#my-contributions)** below.
 
-- [Try Toolkit](#try-now)
-- [About Toolkit](#about-toolkit)
-- [Toolkit Setup](/docs/setup.md)
-- [Troubleshooting](/docs/troubleshooting.md)
-- [How to guides](/docs/how_to_guides.md)
-  - [How to set up command model providers](/docs/command_model_providers.md)
-  - [How to add tools](/docs/custom_tool_guides/tool_guide.md)
-  - [How to add auth to your tools](/docs/custom_tool_guides/tool_auth_guide.md)
-  - [How to setup Google Drive](/docs/custom_tool_guides/google_drive.md)
-  - [How to setup Gmail](/docs/custom_tool_guides/gmail.md)
-  - [How to setup Slack Tool](/docs/custom_tool_guides/slack.md)
-  - [How to setup Github Tool](/docs/custom_tool_guides/github.md)
-  - [How to setup Sharepoint](/docs/custom_tool_guides/sharepoint.md)
-  - [How to setup Google Text-to-Speech](/docs/text_to_speech.md)
-  - [How to add authentication](/docs/auth_guide.md)
-  - [How to deploy toolkit services](/docs/service_deployments.md)
-  - [How to debug dockerized Toolkit API with VSCode/PyCharm](/docs/debugging.md)
-  - [How to set up Github Actions for automated DB migrations](/docs/github_migrations_action.md)
-  - [How to customize the theme](/docs/theming.md)
-  - [How to contribute](#contributing)
-- [Try ToolGen's Command Showcase](https://coral.cohere.com/)
+---
 
-![](/docs/assets/toolkit.gif)
+## Table of Contents
+1. [What This Project Is](#what-this-project-is)
+2. [Why I Built This](#why-i-built-this)
+3. [Key Features](#key-features)
+4. [Tech Stack](#tech-stack)
+5. [System Architecture](#system-architecture)
+6. [Core Workflow: The Agentic Chat Loop](#core-workflow-the-agentic-chat-loop)
+7. [Database Schema](#database-schema)
+8. [The Plugin Architecture (Tools & Model Providers)](#the-plugin-architecture-tools--model-providers)
+9. [Auth & Multi-Tenancy](#auth--multi-tenancy)
+10. [Deployment Options](#deployment-options)
+11. [Getting Started Locally](#getting-started-locally)
+12. [Testing](#testing)
+13. [Design Decisions & Trade-offs (Interview Notes)](#design-decisions--trade-offs-interview-notes)
+14. [My Contributions](#my-contributions)
+15. [What I'd Improve Next](#what-id-improve-next)
+16. [Credits & License](#credits--license)
 
-## Try Now:
+---
 
-There are two main ways for quickly running Toolkit: local and cloud. See the specific instructions given below.
+## What This Project Is
 
-### Local
+![](/docs/assets/toolkit_graphic.png)
 
-_You will need to have [Docker](https://www.docker.com/products/docker-desktop/), [Docker-compose >= 2.22](https://docs.docker.com/compose/install/), and [Poetry](https://python-poetry.org/docs/#installation) installed. [Go here for a more detailed setup.](/docs/setup.md)_
-Note: to include community tools when building locally, set the `INSTALL_COMMUNITY_DEPS` build arg in the `docker-compose.yml` to `true`.
+ToolGen is a full-stack, deployable **Retrieval-Augmented Generation (RAG) platform**. Instead of just wrapping a single chat completion call, it runs a full **agentic loop**: the LLM decides which tools it needs (web search, a Python sandbox, file search, Google Drive, Gmail, GitHub, Slack, SharePoint, etc.), the backend executes those tools, reranks and chunks the results, feeds them back to the model, and repeats until the model is ready to answer — all while streaming events to the client over Server-Sent Events (SSE).
 
-Both options will serve the frontend at http://localhost:4000.
+It ships with three client interfaces (a Next.js web app, a legacy web UI, and a Slack bot), a FastAPI backend, Postgres for persistence, Redis for caching, and a sandboxed code-execution container (**Terrarium**) for the Python interpreter tool. It supports five model-provider backends (Cohere's hosted API, Azure, AWS Bedrock, AWS SageMaker, and a self-hosted "single container" option) behind one common interface, and it's deployable to AWS, Azure, GCP, or plain Docker Compose.
 
-#### Using `make`
+## Why I Built This
 
-Use the provided Makefile to simplify and automate your development workflow with Cohere Toolkit, including Docker Compose management, testing, linting, and environment setup.
+I wanted hands-on experience with the pieces that show up in real production LLM systems but rarely appear in tutorial-sized projects:
+- An actual **tool-calling / agent loop** with loop termination, timeouts, and parallel tool execution — not a single-shot prompt.
+- A **retrieval pipeline** with chunking and cross-encoder reranking, not just "stuff everything into the prompt."
+- A **provider-agnostic abstraction layer** so the same chat logic works across five different LLM backends.
+- **Multi-tenant data modeling** (organizations, users, agents, conversations) with proper cascading deletes and composite keys.
+- **Config-driven, layered settings** (YAML + env vars) instead of hardcoded values, and multiple auth strategies (JWT, OAuth, OIDC, SCIM).
+- **Infrastructure-as-code** for multiple clouds, so I could see how the same app is packaged for AWS ECS/Copilot, Azure Container Apps, GCP Cloud Run, and Kubernetes (Helm).
 
-```bash
-git clone https://github.com/cohere-ai/cohere-toolkit.git
-cd cohere-toolkit
-make first-run
+Cloning and running this end-to-end — and then explaining *why* each piece exists — was the goal, not the size of the codebase itself.
+
+## Key Features
+
+- 🧠 **Agentic tool-calling loop** — the model can chain up to 15 tool-call steps per turn before it must answer.
+- 🔍 **Multi-source retrieval** — web search (Tavily / Google / Brave / a "hybrid" aggregator), Wikipedia (via LangChain), file search, and connector tools (Google Drive, Gmail, GitHub, SharePoint, Slack, Jira).
+- 🧮 **Sandboxed code execution** — a Python interpreter tool that runs in an isolated container (Terrarium), not in the API process.
+- 🔁 **Reranking + chunking pipeline** — tool outputs are split into soft/hard word-count chunks and reranked against the query before being handed back to the model, so only the most relevant passages consume context.
+- 🔌 **Pluggable model providers** — Cohere Platform, Azure, AWS Bedrock, AWS SageMaker, self-hosted, and (as an optional "community" package) HuggingFace / local models — all behind one abstract interface.
+- 🏢 **Multi-tenancy** — organizations → users → agents → conversations, with a request-scoped query filter that automatically scopes reads by `organization_id`.
+- 🔐 **Multiple auth strategies** — JWT with a logout blacklist table, Basic auth, Google OAuth, OIDC, and a SCIM endpoint for enterprise user provisioning.
+- 💬 **Three interfaces** — a modern Next.js "assistants" web app, a legacy web UI, and a TypeScript Slack bot (Slack Bolt framework) with thread summarization, RAG-over-uploaded-files, and citation formatting.
+- ☁️ **Multi-cloud deployment** — Docker Compose for local dev; Dockerfiles + IaC for AWS (ECS/Copilot), Azure Container Apps, GCP Cloud Run, and a Kubernetes Helm chart.
+- 🧩 **Extensible by design** — new tools and model deployments are added by subclassing an abstract base class and registering them; an optional "community" package keeps experimental integrations out of the core.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend API | Python 3.11, FastAPI, Uvicorn, Server-Sent Events (`sse-starlette`) |
+| ORM / Migrations | SQLAlchemy 2.0 (typed `Mapped[]` models), Alembic |
+| Validation / Config | Pydantic v2, `pydantic-settings` (layered YAML + env-var config) |
+| Database | PostgreSQL 14 |
+| Cache | Redis 7 |
+| Code sandbox | Terrarium (isolated container for the Python-interpreter tool) |
+| LLM orchestration | Cohere SDK, LangChain (Wikipedia retriever, community connectors) |
+| Dependency mgmt | Poetry |
+| Testing | pytest, pytest-xdist (parallel runs), coverage |
+| Web frontend | Next.js, TypeScript, Tailwind CSS |
+| Slack bot | TypeScript, Slack Bolt SDK, `tsup`, Vitest |
+| Containerization | Docker, Docker Compose (`watch` mode for live reload) |
+| Cloud deploy | AWS (ECS/Copilot), Azure Container Apps, GCP Cloud Run, Kubernetes (Helm) |
+| Auth | JWT (HS256), OAuth2 (Google), OIDC, SCIM |
+
+## System Architecture
+
+```mermaid
+flowchart TB
+    subgraph Interfaces["Client Interfaces"]
+        WEB["Next.js Web App<br/>(assistants_web)"]
+        LEGACY["Legacy Web UI<br/>(coral_web)"]
+        SLACK["Slack Bot<br/>(TypeScript / Bolt)"]
+    end
+ 
+    subgraph Backend["FastAPI Backend"]
+        API["REST + SSE API layer<br/>(routers/*)"]
+        AUTH["Auth middleware<br/>JWT / OAuth / OIDC / SCIM"]
+        ORCH["Agentic Chat Orchestrator<br/>(CustomChat loop)"]
+        TOOLREG["Tool Plugin Registry"]
+        DEPREG["Model Deployment Registry"]
+    end
+ 
+    subgraph Providers["Model Providers (pluggable)"]
+        COHERE["Cohere Platform"]
+        AZURE["Azure"]
+        BEDROCK["AWS Bedrock"]
+        SAGEMAKER["AWS SageMaker"]
+        SINGLE["Self-hosted / Single Container"]
+    end
+ 
+    subgraph Tools["Tool Implementations"]
+        SEARCH["Web Search<br/>(Tavily / Google / Brave / Hybrid)"]
+        PY["Python Interpreter"]
+        FILES["File Read / Search"]
+        CONNECT["Drive / Gmail / GitHub / Slack / SharePoint"]
+    end
+ 
+    subgraph Data["Data Layer"]
+        PG[("PostgreSQL")]
+        REDIS[("Redis")]
+        TERR["Terrarium Sandbox"]
+    end
+ 
+    WEB --> API
+    LEGACY --> API
+    SLACK --> API
+    API --> AUTH
+    API --> ORCH
+    ORCH --> DEPREG --> COHERE & AZURE & BEDROCK & SAGEMAKER & SINGLE
+    ORCH --> TOOLREG --> SEARCH & PY & FILES & CONNECT
+    PY --> TERR
+    ORCH --> PG
+    API --> REDIS
 ```
 
-#### Docker Compose only
+**How to read this:** every interface talks to the same FastAPI backend over one API. The backend never calls a model provider or a tool directly — it goes through a **registry** (`get_available_tools()`, the deployment registry) that resolves a string ID to a class implementing a shared abstract interface. That indirection is what makes "add a new tool" or "add a new model provider" a matter of writing one class and registering it, instead of touching the chat logic.
 
-Use Docker Compose directly if you want to quickly spin up and manage your container environment without the additional automation provided by the Makefile.
+## Core Workflow: The Agentic Chat Loop
+
+This is the heart of the system (`backend/chat/custom/custom.py`, `backend/chat/custom/tool_calls.py`). A single user message can trigger several rounds of "ask the model → run tools → feed results back" before the user sees a final answer — this is a ReAct-style agent loop, capped at 15 steps to prevent infinite tool-call cycles.
+
+```mermaid
+flowchart TD
+    A["User sends a message"] --> B["POST /v1/chat-stream"]
+    B --> C["process_chat():<br/>persist user message,<br/>resolve agent + available tools"]
+    C --> D["CustomChat.call_chat()"]
+    D --> E["Invoke model deployment's<br/>chat stream (provider-agnostic)"]
+    E --> F{"Model response<br/>includes tool calls?"}
+    F -- "No" --> G["Stream final answer<br/>+ citations to the client"]
+    F -- "Yes" --> H["Run all requested tools<br/>in parallel (asyncio.gather,<br/>60s timeout)"]
+    H --> I["Rerank + chunk tool outputs<br/>(Cohere Rerank, word-count chunking,<br/>relevance threshold filter)"]
+    I --> J["Append tool results<br/>to chat history"]
+    J --> K{"Step count < 15?"}
+    K -- "Yes" --> E
+    K -- "No" --> G
+    G --> L["Persist assistant message,<br/>documents, citations,<br/>and tool_calls to Postgres"]
+```
+
+Key implementation details worth knowing cold in an interview:
+- **Streaming is event-driven.** The backend yields typed events (`stream-start`, `tool-calls-generation`, `tool-input`, `tool-result`, `text-generation`, `citation-generation`, `stream-end`) over SSE, and the loop only forwards the *final* `stream-end` to the client — intermediate ones are filtered out so the UI doesn't flicker between "answer" states.
+- **Tool execution is parallelized, not sequential.** If the model requests three tools in one turn, all three run concurrently via `asyncio.gather`, wrapped in a single 60-second timeout.
+- **A death-loop guard exists.** `check_death_loop()` compares consecutive tool-call plans/actions so a model that gets stuck repeating the same tool call doesn't burn through all 15 steps silently.
+- **Retrieval and generation share one model.** The same deployment object both generates the answer *and* reranks retrieved chunks (`invoke_rerank`), so swapping providers changes both behaviors consistently.
+
+## Database Schema
+
+All tables inherit a common `Base` (UUID string primary key, `created_at`/`updated_at` timestamps). Below is the core entity relationship model (simplified):
+
+```mermaid
+erDiagram
+    ORGANIZATION ||--o{ USER : "has (user_organization)"
+    ORGANIZATION ||--o{ AGENT : owns
+    ORGANIZATION ||--o{ CONVERSATION : owns
+    USER ||--o{ AGENT : creates
+    USER ||--o{ CONVERSATION : owns
+    USER ||--o{ GROUP : "member of (user_group)"
+    USER ||--o{ TOOL_AUTH : "OAuth tokens per tool"
+    AGENT ||--o{ CONVERSATION : "used in"
+    AGENT ||--o{ AGENT_TOOL_METADATA : configures
+    AGENT }o--|| DEPLOYMENT : "assigned provider"
+    AGENT }o--|| MODEL : "assigned model"
+    DEPLOYMENT ||--o{ MODEL : provides
+    CONVERSATION ||--o{ MESSAGE : contains
+    CONVERSATION ||--o{ CONVERSATION_FILES : attaches
+    MESSAGE ||--o{ DOCUMENT : "retrieved into"
+    MESSAGE ||--o{ CITATION : has
+    MESSAGE ||--o{ TOOL_CALL : triggers
+    CITATION }o--o{ DOCUMENT : "linked (citation_documents)"
+    USER ||--o{ SNAPSHOT : creates
+```
+
+Notable schema decisions:
+- **`conversations` uses a composite primary key `(id, user_id)`** rather than a single `id`. Every downstream table (`messages`, `documents`, `citations`, `snapshots`) uses a composite foreign key `(conversation_id, user_id)` back to it. This bakes ownership directly into the foreign-key relationship, so it's structurally impossible to join a message to a conversation owned by a different user.
+- **Multi-tenancy is enforced at the query layer, not just the schema.** A custom SQLAlchemy `Query` subclass (`CustomFilterQuery`) reads the current request's `organization_id` from a context variable and automatically filters any query touching a table with an `organization_id` column — so per-request tenant isolation doesn't rely on every developer remembering to add a `.filter()` call.
+- **`tool_auth` stores encrypted OAuth tokens per `(user_id, tool_id)`.** Access/refresh tokens are stored encrypted at rest and only decrypted on read via a `@property`.
+- **`agents` have a unique constraint on `(name, version, user_id)`**, which is how the system supports versioned, per-user-editable agent configurations without a separate version table.
+- **`blacklist` exists purely to support JWT logout** — since JWTs are stateless, logging out means adding the token's `jti` to this table and checking it on every authenticated request.
+
+## The Plugin Architecture (Tools & Model Providers)
+
+Both tools and model providers are implemented as **abstract base classes** with a registry that maps a string ID to an implementation — a classic Strategy pattern:
+
+- **`BaseDeployment`** (`model_deployments/base.py`) defines `invoke_chat`, `invoke_chat_stream`, `invoke_rerank`, `list_models`, `is_available`, and `env_vars`. Five deployments implement it: `CohereDeployment`, `AzureDeployment`, `BedrockDeployment`, `SageMakerDeployment`, `SingleContainerDeployment` — plus community-contributed `HuggingFaceDeployment` and `LocalModelDeployment` behind a feature flag.
+- **Tools** are registered in `config/tools.py` as an `Enum` mapping a name to an implementation class (`Calculator`, `PythonInterpreter`, `TavilyWebSearch`, `GoogleDrive`, `GithubTool`, `SlackTool`, `JiraTool`, etc.). A `ParametersValidationMeta` metaclass automatically wraps every tool's `call()` method with parameter validation and (optionally) metrics timing — so individual tool authors don't have to remember to add that boilerplate themselves.
+- **Community extensions are opt-in.** A separate `src/community` package (arxiv, PubMed, ClinicalTrials, Wolfram Alpha, a generic LangChain connector) is only imported if `feature_flags.use_community_features` is set — keeping experimental/lower-maintenance integrations out of the core dependency tree (`INSTALL_COMMUNITY_DEPS` build arg controls this at the Docker layer too).
+
+This is the piece I'd point to first if asked "how would you add support for a new LLM provider or a new tool without touching existing chat logic" — the answer is: implement the abstract interface, register it, done.
+
+## Auth & Multi-Tenancy
+
+- **JWT** (HS256, 90-day expiry) is the default session mechanism; a `blacklist` table handles logout for otherwise-stateless tokens.
+- **OAuth strategies are pluggable** (`services/auth/strategies/`): `basic`, `google_oauth`, and generic `oidc`, all implementing a shared `BaseAuthStrategy`.
+- **SCIM** (`routers/scim.py`) is implemented for enterprise identity-provider user/group provisioning — a detail that signals this was built with real enterprise deployments in mind, not just a demo.
+- **Router-level dependency injection** — `config/routers.py` maps each router to a different set of FastAPI `Depends()` based on whether auth is globally enabled, so the same codebase can run fully open (local dev) or fully authenticated (production) without branching logic scattered through route handlers.
+
+## Deployment Options
+
+| Target | Mechanism |
+|---|---|
+| Local dev | `docker compose up` (Postgres, Redis, backend, Next.js frontend, Terrarium sandbox) with `docker compose watch` for live reload |
+| AWS | ECS via AWS Copilot (`copilot/`), plus raw `ecs_service.json` |
+| Azure | Azure Container Apps / Compose deploy (`azure_compose_deploy/`, `azuredeploy.json`) |
+| GCP | Cloud Run (`gcp.backend.Dockerfile`, `gcp.frontend.Dockerfile`, `gcp_postcreate_hook.sh`) |
+| Kubernetes | Helm chart (`charts/`) |
+| CI | `cloudbuild.yaml` for GCP Cloud Build |
+
+Each cloud target gets its **own Dockerfile** (e.g. `gcp.backend.Dockerfile` vs `azure-api.Dockerfile`) rather than one generic image — a trade-off that favors platform-specific optimization (base image, entrypoint, health checks) over a single "works everywhere" artifact.
+
+## Getting Started Locally
 
 ```bash
-git clone https://github.com/cohere-ai/cohere-toolkit.git
-cd cohere-toolkit
+git clone <this-repo-url>
+cd toolgen
+
+# Requires Docker, Docker Compose >= 2.22, and Poetry
+make first-run          # builds + starts db, redis, backend, frontend, terrarium
+# — or, without the Makefile —
 docker compose up
 docker compose run --build backend alembic -c src/backend/alembic.ini upgrade head
 ```
 
-### Cloud
+- Web UI: `http://localhost:4000`
+- Backend API: `http://localhost:8000` (health check at `/health`)
+- Add provider credentials (e.g. `COHERE_API_KEY`) to `src/backend/config/secrets.yaml` before chatting.
 
-#### GitHub Codespaces
+## Testing
 
-To run this project using GitHub Codespaces, please refer to our [Codespaces Setup Guide](/docs/github_codespaces.md).
+- **Unit tests:** `make run-unit-tests` → `pytest -n auto` (parallelized) with coverage, against `src/backend/tests/unit` (46 test modules).
+- **Integration tests:** `make run-integration-tests` → a separate pytest config/DB (`test_db` service on port 5433) so integration runs don't clobber dev data.
+- **Community package tests:** isolated under `src/community/tests`, run separately from core tests.
+- **Frontend:** Vitest for both the Slack bot and the Next.js app's unit tests.
 
-## About Toolkit
+## Design Decisions & Trade-offs (Interview Notes)
 
-![](/docs/assets/toolkit_graphic.png)
+Questions I'd expect — and how I'd answer them, based on reading the code:
 
-- **Interfaces** - any client-side UI, currently contains two web apps, one agentic and one basic, and a Slack bot implementation.
-  - Defaults to ToolGen's Web UI at `src/interfaces/assistants_web` - A web app built in Next.js. Includes a simple SQL database out of the box to store conversation history in the app.
-  - You can change the Web UI using the docker compose file.
-- **Backend API** - in `src/backend` this follows a similar structure to the [ToolGen Chat API](https://docs.cohere.com/reference/chat) but also include customizable elements:
-  - **Model** - you can customize with which provider you access ToolGen's Command models. By default included in the toolkit is ToolGen's Platform, Sagemaker, Azure, Bedrock, HuggingFace, local models. [More details here.](/docs/command_model_providers.md)
-  - **Retrieval**- you can customize tools and data sources that the application is run with.
-- **Service Deployment Guides** - we also include guides for how to deploy the toolkit services in production including with AWS, GCP and Azure. [More details here.](/docs/service_deployments.md)
+- **"Why cap the tool loop at 15 steps instead of letting the model decide when to stop?"** Because an LLM-driven loop has no natural termination guarantee — a model can get stuck re-issuing similar tool calls. A hard cap plus a death-loop detector (`check_death_loop`) bounds worst-case latency and cost per request.
+- **"Why rerank *and* chunk tool outputs instead of passing raw results back to the model?"** Context is expensive and finite. Chunking (soft cutoff ~100 words, hard cutoff ~300, on sentence boundaries) plus reranking against the query means only the most relevant passages consume context tokens, and results below a relevance threshold (0.1) are dropped entirely.
+- **"Why abstract the model provider instead of calling the Cohere SDK directly?"** So the orchestration logic (the agent loop, reranking, tool execution) is provider-agnostic. Swapping Cohere for Bedrock or a self-hosted model touches only `model_deployments/`, not `chat/`.
+- **"Why a composite primary key on `conversations` instead of a simple UUID?"** It pushes ownership enforcement into the schema itself via composite foreign keys, rather than relying on every query to remember a `WHERE user_id = ...` clause.
+- **"Why run the Python interpreter tool in a separate container (Terrarium) instead of `exec()` in the API process?"** Arbitrary code execution requested by an LLM is a security boundary — isolating it in its own sandboxed container limits the blast radius if generated code is malicious or buggy.
+- **"Why YAML + environment variables for config instead of just env vars?"** Layered config (`pydantic-settings` with a YAML source plus env-var overrides) lets structured, nested settings (e.g. per-deployment config blocks) live in a checked-in template while secrets stay in env vars / a gitignored `secrets.yaml` — readable defaults, overridable per-environment.
+- **"Why JWT with a blacklist table instead of server-side sessions?"** Stateless JWTs scale better across multiple backend replicas without a shared session store — the blacklist table is the one piece of state needed to support logout, kept intentionally minimal.
+
+## My Contributions
+
+- **Engineered a Custom Jira Integration Tool (`jira_create_issue`):** Designed and implemented a custom tool allowing the LLM agent to autonomously create high-priority bug reports and task tickets directly in a live Jira Software board.
+- **Implemented API Authentication & Error Handling:** Wrote the Python backend logic to securely authenticate with the Atlassian API using environment variables (`JIRA_API_TOKEN`, `JIRA_EMAIL`). Built graceful error handling so that if the API rejects a request (e.g., missing project keys or permissions), the error is passed back to the LLM to inform the user, rather than crashing the backend.
+- **Mastered the Plugin Architecture:** Successfully navigated the existing `BaseTool` abstraction to integrate the Jira tool. Used `Pydantic` to define a strict input schema (`summary`, `description`, `issue_type`, `priority`) so the LLM knows exactly how to format its tool calls.
+- **End-to-End Testing:** Configured local Docker Compose environments to test the tool in isolation using mock responses, and subsequently deployed it against a live Jira Kanban board to verify end-to-end functionality.
+- Walked the codebase from `main.py` down through the agentic chat loop, the tool registry, and the schema to understand the request lifecycle in full.
+- Deployed the full stack locally via Docker Compose and configured the Cohere Platform model deployment end-to-end.
+- Walked the codebase from `main.py` down through the agentic chat loop, the tool registry, and the schema to understand the request lifecycle in full.
+- _Add any real customizations here — e.g. "added a new tool," "changed the reranking threshold and measured the effect," "deployed to `<cloud>` and documented the process."_
+
+## What I'd Improve Next
+
+- Add tracing (OpenTelemetry) around the tool-call loop to visualize per-step latency, since today's metrics middleware only times two monitored paths.
+- Add a circuit breaker per tool so one consistently-failing tool (e.g. an expired OAuth token) can't repeatedly eat into the 60-second parallel-execution timeout for the whole turn.
+- Explore replacing the word-count-based chunker with a token-aware chunker tied to the active model's context window.
+
+## Credits & License
+
+This project is a personal clone of **[Cohere Toolkit](https://github.com/cohere-ai/cohere-toolkit)**, © Cohere, released under the **MIT License**. All architecture, original code, and design decisions described above were authored by Cohere and its open-source contributors — this repository and README exist as my own learning exercise and portfolio artifact, not as a claim of original authorship. If you're evaluating this for a role, I'm happy to walk through any part of the request lifecycle, schema, or deployment setup live.

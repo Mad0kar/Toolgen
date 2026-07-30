@@ -16,6 +16,7 @@ export const TOOL_SLACK_ID = 'slack';
 export const TOOL_GMAIL_ID = 'gmail';
 export const TOOL_GITHUB_ID = 'github';
 export const TOOL_SHAREPOINT_ID = 'sharepoint';
+export const TOOL_JIRA_ID = 'jira_create_issue';
 
 export const BACKGROUND_TOOLS = [TOOL_SEARCH_FILE_ID, TOOL_READ_DOCUMENT_ID];
 
@@ -34,4 +35,5 @@ export const TOOL_ID_TO_DISPLAY_INFO: { [id: string]: { icon: IconName } } = {
   [TOOL_GMAIL_ID]: { icon: 'gmail' },
   [TOOL_GITHUB_ID]: { icon: 'github' },
   [TOOL_SHAREPOINT_ID]: { icon: 'sharepoint' },
+  [TOOL_JIRA_ID]: { icon: 'web' },
 };
