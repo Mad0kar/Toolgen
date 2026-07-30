@@ -1,6 +1,6 @@
 ![](/docs/assets/banner.png)
 
-# Cohere Toolkit
+# ToolGen Toolkit
 
 Toolkit is a deployable all-in-one RAG application that enables users to quickly build their LLM-based product.
 
@@ -24,7 +24,7 @@ Toolkit is a deployable all-in-one RAG application that enables users to quickly
   - [How to set up Github Actions for automated DB migrations](/docs/github_migrations_action.md)
   - [How to customize the theme](/docs/theming.md)
   - [How to contribute](#contributing)
-- [Try Cohere's Command Showcase](https://coral.cohere.com/)
+- [Try ToolGen's Command Showcase](https://coral.cohere.com/)
 
 ![](/docs/assets/toolkit.gif)
 
@@ -71,9 +71,9 @@ To run this project using GitHub Codespaces, please refer to our [Codespaces Set
 ![](/docs/assets/toolkit_graphic.png)
 
 - **Interfaces** - any client-side UI, currently contains two web apps, one agentic and one basic, and a Slack bot implementation.
-  - Defaults to Cohere's Web UI at `src/interfaces/assistants_web` - A web app built in Next.js. Includes a simple SQL database out of the box to store conversation history in the app.
+  - Defaults to ToolGen's Web UI at `src/interfaces/assistants_web` - A web app built in Next.js. Includes a simple SQL database out of the box to store conversation history in the app.
   - You can change the Web UI using the docker compose file.
-- **Backend API** - in `src/backend` this follows a similar structure to the [Cohere Chat API](https://docs.cohere.com/reference/chat) but also include customizable elements:
-  - **Model** - you can customize with which provider you access Cohere's Command models. By default included in the toolkit is Cohere's Platform, Sagemaker, Azure, Bedrock, HuggingFace, local models. [More details here.](/docs/command_model_providers.md)
+- **Backend API** - in `src/backend` this follows a similar structure to the [ToolGen Chat API](https://docs.cohere.com/reference/chat) but also include customizable elements:
+  - **Model** - you can customize with which provider you access ToolGen's Command models. By default included in the toolkit is ToolGen's Platform, Sagemaker, Azure, Bedrock, HuggingFace, local models. [More details here.](/docs/command_model_providers.md)
   - **Retrieval**- you can customize tools and data sources that the application is run with.
 - **Service Deployment Guides** - we also include guides for how to deploy the toolkit services in production including with AWS, GCP and Azure. [More details here.](/docs/service_deployments.md)
