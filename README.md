@@ -49,7 +49,8 @@ Cloning and running this end-to-end — and then explaining *why* each piece exi
 ## Key Features
 
 - 🧠 **Agentic tool-calling loop** — the model can chain up to 15 tool-call steps per turn before it must answer.
-- 🔍 **Multi-source retrieval** — web search (Tavily / Google / Brave / a "hybrid" aggregator), Wikipedia (via LangChain), file search, and connector tools (Google Drive, Gmail, GitHub, SharePoint, Slack, Jira).
+- 🔍 **Multi-source retrieval** — web search (Tavily / Google / Brave / a "hybrid" aggregator), Wikipedia (via LangChain), file search, and read-only connector tools (Google Drive, Gmail, GitHub, SharePoint, Slack).
+- 🎫 **Write-action tooling** — `jira_create_issue` (added by me): the only tool in the registry that *mutates* external state instead of retrieving it — the agent can autonomously file a real Jira ticket mid-conversation. See [My Contributions](#my-contributions) for how it's wired in and its current limitations.
 - 🧮 **Sandboxed code execution** — a Python interpreter tool that runs in an isolated container (Terrarium), not in the API process.
 - 🔁 **Reranking + chunking pipeline** — tool outputs are split into soft/hard word-count chunks and reranked against the query before being handed back to the model, so only the most relevant passages consume context.
 - 🔌 **Pluggable model providers** — Cohere Platform, Azure, AWS Bedrock, AWS SageMaker, self-hosted, and (as an optional "community" package) HuggingFace / local models — all behind one abstract interface.
@@ -110,6 +111,10 @@ flowchart TB
         FILES["File Read / Search"]
         CONNECT["Drive / Gmail / GitHub / Slack / SharePoint"]
     end
+
+    subgraph WriteTools["Tool Implementations (write / mutating)"]
+        JIRA["Jira — jira_create_issue<br/>(creates real tickets via Atlassian API)"]
+    end
  
     subgraph Data["Data Layer"]
         PG[("PostgreSQL")]
@@ -124,6 +129,7 @@ flowchart TB
     API --> ORCH
     ORCH --> DEPREG --> COHERE & AZURE & BEDROCK & SAGEMAKER & SINGLE
     ORCH --> TOOLREG --> SEARCH & PY & FILES & CONNECT
+    TOOLREG --> JIRA
     PY --> TERR
     ORCH --> PG
     API --> REDIS
@@ -135,22 +141,9 @@ flowchart TB
 
 This is the heart of the system (`backend/chat/custom/custom.py`, `backend/chat/custom/tool_calls.py`). A single user message can trigger several rounds of "ask the model → run tools → feed results back" before the user sees a final answer — this is a ReAct-style agent loop, capped at 15 steps to prevent infinite tool-call cycles.
 
-```mermaid
-flowchart TD
-    A["User sends a message"] --> B["POST /v1/chat-stream"]
-    B --> C["process_chat():<br/>persist user message,<br/>resolve agent + available tools"]
-    C --> D["CustomChat.call_chat()"]
-    D --> E["Invoke model deployment's<br/>chat stream (provider-agnostic)"]
-    E --> F{"Model response<br/>includes tool calls?"}
-    F -- "No" --> G["Stream final answer<br/>+ citations to the client"]
-    F -- "Yes" --> H["Run all requested tools<br/>in parallel (asyncio.gather,<br/>60s timeout)"]
-    H --> I["Rerank + chunk tool outputs<br/>(Cohere Rerank, word-count chunking,<br/>relevance threshold filter)"]
-    I --> J["Append tool results<br/>to chat history"]
-    J --> K{"Step count < 15?"}
-    K -- "Yes" --> E
-    K -- "No" --> G
-    G --> L["Persist assistant message,<br/>documents, citations,<br/>and tool_calls to Postgres"]
-```
+![Agentic execution workflow, traced from the actual backend code](docs/assets/agentic_execution_flow.png)
+
+*(Diagram built and verified line-by-line against `routers/chat.py`, `chat/custom/custom.py`, and `chat/custom/tool_calls.py` — including the `jira_create_issue` branch I added. Jira is a **write/mutating** action, not a retrieval call, so it has no `query`/`search_query` parameter and `rerank_and_chunk()` passes its output straight through rather than reranking it.)*
 
 Key implementation details worth knowing cold in an interview:
 - **Streaming is event-driven.** The backend yields typed events (`stream-start`, `tool-calls-generation`, `tool-input`, `tool-result`, `text-generation`, `citation-generation`, `stream-end`) over SSE, and the loop only forwards the *final* `stream-end` to the client — intermediate ones are filtered out so the UI doesn't flicker between "answer" states.
@@ -160,30 +153,11 @@ Key implementation details worth knowing cold in an interview:
 
 ## Database Schema
 
-All tables inherit a common `Base` (UUID string primary key, `created_at`/`updated_at` timestamps). Below is the core entity relationship model (simplified):
+All tables inherit a common `Base` (UUID string primary key, `created_at`/`updated_at` timestamps, omitted below for space). Below is the core entity relationship model, built directly from `database_models/*.py`:
 
-```mermaid
-erDiagram
-    ORGANIZATION ||--o{ USER : "has (user_organization)"
-    ORGANIZATION ||--o{ AGENT : owns
-    ORGANIZATION ||--o{ CONVERSATION : owns
-    USER ||--o{ AGENT : creates
-    USER ||--o{ CONVERSATION : owns
-    USER ||--o{ GROUP : "member of (user_group)"
-    USER ||--o{ TOOL_AUTH : "OAuth tokens per tool"
-    AGENT ||--o{ CONVERSATION : "used in"
-    AGENT ||--o{ AGENT_TOOL_METADATA : configures
-    AGENT }o--|| DEPLOYMENT : "assigned provider"
-    AGENT }o--|| MODEL : "assigned model"
-    DEPLOYMENT ||--o{ MODEL : provides
-    CONVERSATION ||--o{ MESSAGE : contains
-    CONVERSATION ||--o{ CONVERSATION_FILES : attaches
-    MESSAGE ||--o{ DOCUMENT : "retrieved into"
-    MESSAGE ||--o{ CITATION : has
-    MESSAGE ||--o{ TOOL_CALL : triggers
-    CITATION }o--o{ DOCUMENT : "linked (citation_documents)"
-    USER ||--o{ SNAPSHOT : creates
-```
+![Database schema, generated from the real SQLAlchemy models](docs/assets/database_schema.png)
+
+*(The Jira feature didn't touch this schema at all — `jira_create_issue` has no `auth_implementation`, so unlike the OAuth connectors it doesn't create any `tool_auth` rows. See [Auth & Multi-Tenancy](#auth--multi-tenancy) below.)*
 
 Notable schema decisions:
 - **`conversations` uses a composite primary key `(id, user_id)`** rather than a single `id`. Every downstream table (`messages`, `documents`, `citations`, `snapshots`) uses a composite foreign key `(conversation_id, user_id)` back to it. This bakes ownership directly into the foreign-key relationship, so it's structurally impossible to join a message to a conversation owned by a different user.
@@ -208,6 +182,7 @@ This is the piece I'd point to first if asked "how would you add support for a n
 - **OAuth strategies are pluggable** (`services/auth/strategies/`): `basic`, `google_oauth`, and generic `oidc`, all implementing a shared `BaseAuthStrategy`.
 - **SCIM** (`routers/scim.py`) is implemented for enterprise identity-provider user/group provisioning — a detail that signals this was built with real enterprise deployments in mind, not just a demo.
 - **Router-level dependency injection** — `config/routers.py` maps each router to a different set of FastAPI `Depends()` based on whether auth is globally enabled, so the same codebase can run fully open (local dev) or fully authenticated (production) without branching logic scattered through route handlers.
+- **Not every tool follows the OAuth pattern.** Drive/Gmail/GitHub/Slack authenticate per-user via `tool_auth` (see [Database Schema](#database-schema)) — each user connects their own account, and the token is looked up per request. `jira_create_issue` doesn't: it has `auth_implementation=None` and reads a single set of credentials from environment variables, so every user of an agent with this tool enabled creates tickets under the same Jira service account, not their own identity. That's consistent with how `TavilyWebSearch` and the other global-API-key tools work, but it's a real difference worth being able to explain if asked "does this tool support per-user auth?" — the honest answer is no, not currently.
 
 ## Deployment Options
 
@@ -257,22 +232,24 @@ Questions I'd expect — and how I'd answer them, based on reading the code:
 - **"Why run the Python interpreter tool in a separate container (Terrarium) instead of `exec()` in the API process?"** Arbitrary code execution requested by an LLM is a security boundary — isolating it in its own sandboxed container limits the blast radius if generated code is malicious or buggy.
 - **"Why YAML + environment variables for config instead of just env vars?"** Layered config (`pydantic-settings` with a YAML source plus env-var overrides) lets structured, nested settings (e.g. per-deployment config blocks) live in a checked-in template while secrets stay in env vars / a gitignored `secrets.yaml` — readable defaults, overridable per-environment.
 - **"Why JWT with a blacklist table instead of server-side sessions?"** Stateless JWTs scale better across multiple backend replicas without a shared session store — the blacklist table is the one piece of state needed to support logout, kept intentionally minimal.
+- **"Your Jira tool reads `os.getenv()` directly — why not use the `Settings()` pattern every other tool uses?"** It doesn't, currently, and that's a real inconsistency I'd fix: `Settings().get('tools.jira.api_token')` would make it configurable the same way as every other tool (via `secrets.yaml`), and it'd show up in `secrets.template.yaml` where new developers actually look. Right now it's an undocumented special case.
+- **"What happens if someone enables the Jira tool but forgets to set the credentials?"** Today: it returns a fake success response (a `MOCK-123` issue URL) instead of an error, so the model — and the user — would be told a ticket was created when it wasn't. That's the single thing I'd prioritize fixing before calling this production-ready; it should raise a clear "Jira is not configured" error instead.
 
 ## My Contributions
 
-- **Engineered a Custom Jira Integration Tool (`jira_create_issue`):** Designed and implemented a custom tool allowing the LLM agent to autonomously create high-priority bug reports and task tickets directly in a live Jira Software board.
-- **Implemented API Authentication & Error Handling:** Wrote the Python backend logic to securely authenticate with the Atlassian API using environment variables (`JIRA_API_TOKEN`, `JIRA_EMAIL`). Built graceful error handling so that if the API rejects a request (e.g., missing project keys or permissions), the error is passed back to the LLM to inform the user, rather than crashing the backend.
-- **Mastered the Plugin Architecture:** Successfully navigated the existing `BaseTool` abstraction to integrate the Jira tool. Used `Pydantic` to define a strict input schema (`summary`, `description`, `issue_type`, `priority`) so the LLM knows exactly how to format its tool calls.
-- **End-to-End Testing:** Configured local Docker Compose environments to test the tool in isolation using mock responses, and subsequently deployed it against a live Jira Kanban board to verify end-to-end functionality.
-- Walked the codebase from `main.py` down through the agentic chat loop, the tool registry, and the schema to understand the request lifecycle in full.
-- Deployed the full stack locally via Docker Compose and configured the Cohere Platform model deployment end-to-end.
-- Walked the codebase from `main.py` down through the agentic chat loop, the tool registry, and the schema to understand the request lifecycle in full.
-- _Add any real customizations here — e.g. "added a new tool," "changed the reranking threshold and measured the effect," "deployed to `<cloud>` and documented the process."_
+- **Engineered a custom Jira integration tool (`jira_create_issue`):** designed and implemented a tool allowing the LLM agent to autonomously create tickets directly in a Jira Cloud project, following the existing `BaseTool` plugin pattern used by every other tool in the registry.
+- **Implemented API authentication & error handling:** wrote the backend logic to authenticate with the Atlassian REST API using environment variables (`JIRA_API_TOKEN`, `JIRA_EMAIL`, `JIRA_DOMAIN`). Built graceful error handling so that if the API rejects a request (e.g., missing project keys or permissions), a structured error is passed back to the model to relay to the user, rather than crashing the backend.
+- **Used Pydantic for strict tool-input validation:** defined `JiraCreateIssueInput` (`summary`, `description`, `issue_type`, `priority`) so the model's tool call is validated before it ever reaches the Atlassian API.
+- **Manually tested end-to-end against a live Jira board** to confirm ticket creation works from a real conversation, though I haven't yet added an automated test (`test_jira.py`) — the existing core tools like `Calculator` have one in `tests/unit/tools/`, and this is next on my list precisely because manual testing doesn't catch regressions the way the test suite does for everything else.
+- Walked the codebase from `main.py` down through the agentic chat loop, the tool registry, and the schema to understand the request lifecycle in full, and deployed the full stack locally via Docker Compose with the Cohere Platform model deployment configured end-to-end.
 
 ## What I'd Improve Next
 
+- **Fix the Jira tool's config pattern** — move credentials from raw `os.getenv()` calls into the app's `Settings()`/`secrets.yaml` system that every other tool uses, and document the required env vars in `secrets.template.yaml`.
+- **Replace the "mock success" fallback with an explicit error** when Jira credentials aren't configured, so a misconfigured deployment fails loudly instead of telling users a ticket was created when it wasn't.
+- **Add `test_jira.py`** and pin `requests` as a direct dependency in `pyproject.toml` instead of relying on it being pulled in transitively.
 - Add tracing (OpenTelemetry) around the tool-call loop to visualize per-step latency, since today's metrics middleware only times two monitored paths.
-- Add a circuit breaker per tool so one consistently-failing tool (e.g. an expired OAuth token) can't repeatedly eat into the 60-second parallel-execution timeout for the whole turn.
+- Add a circuit breaker per tool so one consistently-failing tool (e.g. an expired OAuth token, or Jira being unreachable) can't repeatedly eat into the 60-second parallel-execution timeout for the whole turn.
 - Explore replacing the word-count-based chunker with a token-aware chunker tied to the active model's context window.
 
 ## Credits & License
